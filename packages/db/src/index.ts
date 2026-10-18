@@ -9,3 +9,4 @@ export * from './repositories/accounts.js';
 export * from './repositories/copiers.js';
 export * from './repositories/engine.js';
 export * from './repositories/platform.js';
+export * from './repositories/index.js';

@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import {
   DEFAULT_FOLLOWER_SETTINGS,
   followerSettingsSchema,
@@ -158,6 +158,27 @@ export class CopierRepository {
   }
 
   // --- followers -----------------------------------------------------------
+
+  /**
+   * Every (copier, follower) pair that is currently allowed to copy, with the
+   * owning user and the follower's account id. Used by the reconciler, which
+   * has to check live slave positions without loading whole copiers.
+   */
+  async listActiveFollowerPairs(): Promise<
+    Array<{ copierId: string; followerId: string; accountId: string; copierUserId: string }>
+  > {
+    const rows = await this.db
+      .select({
+        copierId: copierFollowers.copierId,
+        followerId: copierFollowers.id,
+        accountId: copierFollowers.accountId,
+        copierUserId: copiers.userId,
+      })
+      .from(copierFollowers)
+      .innerJoin(copiers, eq(copiers.id, copierFollowers.copierId))
+      .where(and(eq(copierFollowers.enabled, true), isNull(copiers.deletedAt), ne(copiers.status, 'disabled')));
+    return rows;
+  }
 
   async addFollower(input: {
     copierId: string;

@@ -44,7 +44,10 @@ export interface NotificationChannelRecord {
   kind: NotificationChannelKind;
   enabled: boolean;
   config: Record<string, unknown>;
+  /** True when an encrypted secret (bot token, webhook signing key) is stored. */
+  hasSecret: boolean;
   createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface JobRecord {
@@ -222,9 +225,9 @@ export class PlatformRepository {
     return rows.map(toChannel);
   }
 
-  async findChannel(channelId: string) {
+  async findChannel(channelId: string): Promise<NotificationChannelRecord | null> {
     const [row] = await this.db.select().from(notificationChannels).where(eq(notificationChannels.id, channelId)).limit(1);
-    return row ?? null;
+    return row ? toChannel(row) : null;
   }
 
   async deleteChannel(userId: string, channelId: string): Promise<boolean> {
@@ -375,7 +378,9 @@ export class PlatformRepository {
       .limit(limit);
     return rows.map((row) => ({
       id: row.id,
+      channelId: row.channelId,
       event: row.event,
+      payload: (row.payload ?? {}) as Record<string, unknown>,
       status: row.status,
       attempts: row.attempts,
       sentAt: row.sentAt,
@@ -760,7 +765,9 @@ function toChannel(row: typeof notificationChannels.$inferSelect): NotificationC
     kind: row.kind,
     enabled: row.enabled,
     config: (row.config ?? {}) as Record<string, unknown>,
+    hasSecret: Boolean(row.secretsEncrypted),
     createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   };
 }
 

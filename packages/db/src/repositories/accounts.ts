@@ -16,6 +16,8 @@ export interface AccountRecord {
   server: string;
   brokerName: string | null;
   kind: AccountKind;
+  /** master / slave / both — drives which pickers an account appears in. */
+  role: 'master' | 'slave' | 'both';
   currency: string;
   leverage: number | null;
   status: AccountStatus;
@@ -520,6 +522,7 @@ interface RawAccount {
   server: string;
   brokerName: string | null;
   kind: AccountKind;
+  role: 'master' | 'slave' | 'both';
   currency: string;
   leverage: number | null;
   status: AccountStatus;
@@ -553,6 +556,7 @@ function toAccountRecord(row: RawAccount): AccountRecord {
     server: row.server,
     brokerName: row.brokerName,
     kind: row.kind,
+    role: row.role,
     currency: row.currency,
     leverage: row.leverage,
     status: row.status,

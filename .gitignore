@@ -5,11 +5,13 @@ node_modules/
 
 # builds
 dist/
+dist-types/
 build/
 .next/
 out/
 *.tsbuildinfo
 .turbo/
+.tsbuild/
 
 # env
 .env

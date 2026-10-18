@@ -9,7 +9,10 @@ import type { Config } from 'drizzle-kit';
  * `drizzle-kit push` is available for throwaway databases only.
  */
 export default {
-  schema: './src/schema/index.ts',
+  // Drizzle Kit loads the schema as CommonJS, which cannot follow the `.js`
+  // specifiers our TypeScript sources use for ESM. Pointing at the compiled
+  // schema removes that mismatch; `db:generate` builds the package first.
+  schema: './dist/schema/index.js',
   out: './drizzle',
   dialect: 'postgresql',
   dbCredentials: {
