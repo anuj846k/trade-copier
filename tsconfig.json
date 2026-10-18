@@ -1,0 +1,12 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/contracts" },
+    { "path": "packages/domain" },
+    { "path": "packages/db" },
+    { "path": "packages/broker" },
+    { "path": "apps/api" },
+    { "path": "apps/bridge-agent" },
+    { "path": "tsconfig.tools.json" }
+  ]
+}

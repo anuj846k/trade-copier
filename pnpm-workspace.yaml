@@ -1,0 +1,11 @@
+# pnpm workspace definition (pnpm >= 9). npm's "workspaces" field is ignored by pnpm.
+packages:
+  - packages/*
+  - apps/*
+
+# Dependency build scripts that are explicitly trusted. pnpm 10 blocks
+# postinstall scripts by default; esbuild's is required for the bundlers
+# (tsup/vitest/vite) and for Next's SWC fallback.
+onlyBuiltDependencies:
+  - esbuild
+  - sharp

@@ -1,0 +1,38 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# builds
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+.turbo/
+
+# env
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# logs & coverage
+*.log
+npm-debug.log*
+coverage/
+
+# os / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# local data
+/tmp/
+.drizzle-cache/
+pgdata/
+
+# vendored reverse-engineering tooling workspace (out of scope for this app)
+/rea/

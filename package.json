@@ -1,0 +1,59 @@
+{
+  "name": "trade-copier",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Production-ready cloud trade copier for forex/CFD (MT4/MT5-class platforms) \u2014 API, copy engine, bridge agent and dashboard.",
+  "type": "module",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "dev": "concurrently -n api,web -c cyan,magenta \"pnpm:dev:api\" \"pnpm:dev:web\"",
+    "dev:api": "pnpm --filter @trade-copier/api dev",
+    "dev:web": "pnpm --filter @trade-copier/web dev",
+    "dev:agent": "pnpm --filter @trade-copier/bridge-agent dev",
+    "build": "pnpm --filter @trade-copier/api build && pnpm --filter @trade-copier/web build && pnpm --filter @trade-copier/bridge-agent build",
+    "typecheck": "tsc -b",
+    "typecheck:clean": "tsc -b --force",
+    "test": "vitest run",
+    "test:unit": "vitest run --project domain --project contracts",
+    "test:integration": "vitest run --project api",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "db:generate": "pnpm --filter @trade-copier/db db:generate",
+    "db:migrate": "pnpm --filter @trade-copier/db db:migrate",
+    "db:studio": "pnpm --filter @trade-copier/db db:studio",
+    "db:seed": "tsx tools/seed.ts",
+    "db:reset": "tsx tools/reset-db.ts",
+    "sim": "tsx tools/simulate-copy.ts",
+    "agent": "pnpm --filter @trade-copier/bridge-agent start",
+    "docker:up": "docker compose up -d postgres",
+    "docker:down": "docker compose down",
+    "lint": "tsc -b && pnpm lint:dead",
+    "lint:dead": "knip --include files,deps"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "concurrently": "^9.1.0",
+    "knip": "^5.41.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "knip": {
+    "workspaces": {
+      ".": {
+        "entry": [
+          "tools/*.ts"
+        ]
+      }
+    }
+  },
+  "packageManager": "pnpm@10.32.1",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "sharp"
+    ]
+  }
+}
