@@ -33,6 +33,10 @@
     "lint:dead": "knip --include files,deps"
   },
   "devDependencies": {
+    "@trade-copier/broker": "workspace:*",
+    "@trade-copier/contracts": "workspace:*",
+    "@trade-copier/db": "workspace:*",
+    "@trade-copier/domain": "workspace:*",
     "@types/node": "^22.10.0",
     "concurrently": "^9.1.0",
     "knip": "^5.41.0",

@@ -1,0 +1,69 @@
+# Local development stack.
+#
+# Only PostgreSQL is required to run the product: the API and the worker are
+# plain Node processes (`pnpm dev`, `pnpm dev:worker`) and the dashboard is
+# `next dev`. Postgres is containerised so the database version matches
+# production instead of whatever happens to be installed.
+#
+#   pnpm docker:up     # start postgres (+ creates the test database)
+#   pnpm db:migrate    # apply migrations
+#   pnpm db:seed       # demo user, accounts, copier
+#   pnpm sim           # run a copy simulation in-process
+#
+# Production deployments should use a managed database and set DATABASE_URL,
+# not this file.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: trade-copier-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: trade_copier
+      POSTGRES_PASSWORD: trade_copier
+      POSTGRES_DB: trade_copier
+      # Faster, more predictable startup for a dev database.
+      POSTGRES_INITDB_ARGS: '--data-checksums'
+      TZ: UTC
+    ports:
+      # Exposed so `psql`, Drizzle Studio and the integration tests can reach it
+      # from the host. Change the left-hand side if 5432 is already taken.
+      - '5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # Creates `trade_copier_test` on first boot (see tools/init-db.sql).
+      - ./tools/init-db.sql:/docker-entrypoint-initdb.d/10-test-database.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U trade_copier -d trade_copier']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    command:
+      # Log slow queries; the copy path must stay in the low milliseconds.
+      - postgres
+      - -c
+      - log_min_duration_statement=200
+      - -c
+      - timezone=UTC
+
+  # Optional browser for the database. Not started by `docker compose up`
+  # because it is only useful while debugging a query.
+  #
+  #   docker compose --profile tools up -d adminer
+  adminer:
+    image: adminer:4
+    container_name: trade-copier-adminer
+    restart: unless-stopped
+    profiles: ['tools']
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - '8080:8080'
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+
+volumes:
+  postgres-data:
+    name: trade-copier-postgres-data

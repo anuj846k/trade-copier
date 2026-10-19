@@ -8,5 +8,14 @@
     "types": ["node"]
   },
   "include": ["tools/**/*.ts"],
-  "references": [{ "path": "packages/contracts" }, { "path": "packages/domain" }, { "path": "packages/db" }]
+  "references": [
+    { "path": "packages/contracts" },
+    { "path": "packages/domain" },
+    { "path": "packages/db" },
+    { "path": "packages/broker" },
+    // The tools drive the real engine and reuse its env schema and password
+    // hashing, so they compile against the API's declaration output instead of
+    // duplicating either.
+    { "path": "apps/api" }
+  ]
 }
