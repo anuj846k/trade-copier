@@ -3,44 +3,29 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "dist/index.js",
   "bin": {
-    "trade-copier-agent": "dist/index.js"
+    "trade-copier-agent": "./dist/index.js"
   },
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch --clear-screen=false src/index.ts",
     "start": "node dist/index.js",
     "build": "tsup",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "test": "vitest run"
   },
   "dependencies": {
     "@trade-copier/broker": "workspace:*",
     "@trade-copier/contracts": "workspace:*",
     "@trade-copier/domain": "workspace:*",
-    "pino": "^9.5.0",
     "ws": "^8.18.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/node": "^22.10.2",
     "@types/ws": "^8.5.13",
     "tsup": "^8.3.5",
-    "tsx": "^4.19.2"
-  },
-  "tsup": {
-    "entry": {
-      "index": "src/index.ts"
-    },
-    "format": [
-      "esm"
-    ],
-    "target": "node20",
-    "platform": "node",
-    "sourcemap": true,
-    "clean": true,
-    "noExternal": [
-      "@trade-copier/contracts",
-      "@trade-copier/domain",
-      "@trade-copier/broker"
-    ]
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
   }
 }

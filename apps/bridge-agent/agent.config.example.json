@@ -1,0 +1,21 @@
+{
+  "serverUrl": "wss://api.example.com/bridge/agent",
+  "token": "paste-the-agent-token-shown-once-in-the-dashboard",
+  "name": "vps-frankfurt-1",
+  "logLevel": "info",
+  "reconnectMinMs": 1000,
+  "reconnectMaxMs": 30000,
+  "healthPort": 9000,
+  "accounts": [
+    {
+      "accountId": "acc_paste_from_dashboard",
+      "label": "MT5 master",
+      "platform": "mt5",
+      "eaHost": "127.0.0.1",
+      "eaPort": 8787,
+      "eaToken": "change-me-shared-secret-with-the-EA",
+      "commandTimeoutMs": 15000,
+      "maxCommandsPerPoll": 20
+    }
+  ]
+}
