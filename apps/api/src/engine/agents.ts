@@ -141,6 +141,14 @@ export interface AgentHubOptions {
 export class AgentHub {
   private readonly sessionsByAgent = new Map<string, AgentSession>();
   private readonly agentByAccount = new Map<string, string>();
+  /**
+   * Caches for accounts served by an in-process connector rather than an agent
+   * (demo mode, the copy simulator, integration tests). They live outside the
+   * session map because there is no socket behind them, but the copy engine
+   * reads them through exactly the same `cacheFor` accessor — a mock account is
+   * therefore subject to the same quote-age and spread rules as a real one.
+   */
+  private readonly localCaches = new Map<string, AccountCache>();
 
   constructor(private readonly options: AgentHubOptions) {}
 
@@ -156,8 +164,16 @@ export class AgentHub {
 
   cacheFor(accountId: string): AccountCache | null {
     const agentId = this.agentByAccount.get(accountId);
-    if (!agentId) return null;
-    return this.sessionsByAgent.get(agentId)?.accounts.get(accountId) ?? null;
+    if (agentId) return this.sessionsByAgent.get(agentId)?.accounts.get(accountId) ?? null;
+    return this.localCaches.get(accountId) ?? null;
+  }
+
+  attachLocalCache(cache: AccountCache): void {
+    this.localCaches.set(cache.accountId, cache);
+  }
+
+  detachLocalCache(accountId: string): void {
+    this.localCaches.delete(accountId);
   }
 
   sessionFor(agentId: string): AgentSession | null {
@@ -165,7 +181,7 @@ export class AgentHub {
   }
 
   isAccountOnline(accountId: string): boolean {
-    return this.agentByAccount.has(accountId);
+    return this.agentByAccount.has(accountId) || this.localCaches.has(accountId);
   }
 
   isAgentOnline(agentId: string): boolean {

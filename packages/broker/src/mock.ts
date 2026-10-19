@@ -42,6 +42,16 @@ export interface MockConnectorOptions {
   slippagePips?: number;
   /** Deterministic RNG seed; identical seeds produce identical fills. */
   seed?: number;
+  /**
+   * First ticket number handed out. Defaults to a value derived from `seed`.
+   *
+   * The copy engine resolves a broker-reported close by `(account, ticket)`, so
+   * a long-lived deployment whose mock tickets restarted at the same number on
+   * every boot would attribute a new run's P/L to an earlier run's link. Real
+   * terminals hand out monotonic tickets, so callers that are not a single test
+   * process should pass a fresh base here.
+   */
+  ticketStart?: number;
   /** Simulated round-trip latency, in ms. */
   latencyMs?: number;
   /** Fraction of orders rejected (0..1) — exercises retry paths in tests. */
@@ -99,7 +109,7 @@ export class MockConnector implements BrokerConnector {
   constructor(options: MockConnectorOptions = {}) {
     this.platform = options.platform ?? 'mock';
     this.label = `Mock ${options.login ?? '00000000'}@${options.server ?? 'Mock-Server'}`;
-    this.ticketCounter = 10_000_000 + Math.floor((options.seed ?? 1) * 137);
+    this.ticketCounter = options.ticketStart ?? 10_000_000 + Math.floor((options.seed ?? 1) * 137);
     this.random = mulberry32(options.seed ?? 42);
     this.options = {
       currency: options.currency ?? 'USD',

@@ -1,7 +1,8 @@
 import type { FastifyBaseLogger } from 'fastify';
+import type { Platform } from '@trade-copier/contracts';
 import { MockConnector, type BrokerConnector } from '@trade-copier/broker';
 import type { Repositories } from '@trade-copier/db';
-import type { AgentHub } from './agents.js';
+import { AccountCache, type AgentHub } from './agents.js';
 
 /**
  * Resolves the connector for an account.
@@ -29,6 +30,7 @@ export class ConnectorRegistry {
 
   unregisterMock(accountId: string): void {
     this.mocks.delete(accountId);
+    this.deps.hub.detachLocalCache(accountId);
   }
 
   /** The connector to use, or null when the account has no live transport. */
@@ -60,6 +62,7 @@ export class ConnectorRegistry {
       leverage: account.leverage ?? 100,
       platform: account.platform,
       seed: hashSeed(account.id),
+      ticketStart: mockTicketBase(account.id),
       latencyMs: 15,
       symbols: symbols.map((symbol) => ({
         name: symbol.name,
@@ -75,8 +78,60 @@ export class ConnectorRegistry {
     });
     this.registerMock(accountId, connector);
     await connector.connect();
+    await this.mirrorIntoHub(accountId, account.platform, connector);
     this.deps.log.info({ accountId, symbols: symbols.length }, 'registered mock broker connector');
     return connector;
+  }
+
+  /**
+   * Mirrors a mock connector into an `AccountCache` on the hub.
+   *
+   * The engine's decisions are driven by the cache an agent fills with quotes,
+   * positions and snapshots. A mock has no agent, so without this the cache
+   * would be empty and the pipeline would (correctly) refuse to price anything:
+   * every open would be skipped with `STALE_QUOTE`. Bridging the mock's events
+   * into the cache keeps the decision path identical to production, and one
+   * quote per symbol is seeded up front because a mock only produces a quote
+   * when asked — it has no streaming feed.
+   */
+  private async mirrorIntoHub(accountId: string, platform: Platform, connector: BrokerConnector): Promise<void> {
+    const cache = new AccountCache(accountId, platform);
+    // `subscribe` is optional on the boundary (a connector may be poll-only).
+    connector.subscribe?.((event) => {
+      switch (event.kind) {
+        case 'positions':
+          cache.setPositions(event.positions);
+          break;
+        case 'snapshot':
+          cache.setSnapshot(event.snapshot);
+          break;
+        case 'quote':
+          cache.setQuotes([event.quote]);
+          break;
+        case 'trade_closed':
+          cache.removePosition(event.trade.ticket);
+          break;
+        default:
+          // `log` and `disconnected` carry no cache state.
+          break;
+      }
+    });
+
+    const symbols = await connector.listSymbols();
+    if (symbols.ok) cache.setSymbols(symbols.value);
+
+    const snapshot = await connector.getSnapshot();
+    if (snapshot.ok) cache.setSnapshot(snapshot.value);
+
+    const positions = await connector.listPositions();
+    if (positions.ok) cache.setPositions(positions.value);
+
+    for (const symbol of symbols.ok ? symbols.value : []) {
+      // `getQuote` emits a `quote` event, which the subscription stores.
+      await connector.getQuote(symbol.name);
+    }
+
+    this.deps.hub.attachLocalCache(cache);
   }
 }
 
@@ -86,6 +141,18 @@ function hashSeed(value: string): number {
     hash = (hash * 31 + value.charCodeAt(index)) % 100_000;
   }
   return hash + 1;
+}
+
+/**
+ * A ticket base that does not repeat between process starts.
+ *
+ * Links are reconciled by `(account, ticket)`, so two runs that started their
+ * mock's counter at the same number would have the second run's closes land on
+ * the first run's links (see `MockConnectorOptions.ticketStart`). Prices stay
+ * deterministic — only the ticket space moves.
+ */
+function mockTicketBase(accountId: string): number {
+  return 10_000_000_000 + (Date.now() % 1_000_000_000) * 1_000 + (hashSeed(accountId) % 1_000);
 }
 
 /** Plausible starting prices so charts and slippage look sane in demo mode. */
