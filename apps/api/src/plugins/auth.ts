@@ -1,4 +1,3 @@
-import cookie from '@fastify/cookie';
 import jwt from '@fastify/jwt';
 import fp from 'fastify-plugin';
 import type { FastifyReply, FastifyRequest } from 'fastify';
@@ -40,40 +39,51 @@ export interface AuthPluginOptions {
   readonly env: Env;
 }
 
-export const authPlugin = fp<AuthPluginOptions>(async (fastify, options) => {
-  await fastify.register(cookie, { secret: options.env.JWT_SECRET, hook: 'onRequest' });
-  await fastify.register(jwt, {
-    secret: options.env.JWT_SECRET,
-    sign: { expiresIn: Math.floor(options.env.ACCESS_TOKEN_TTL / 1000) },
-    cookie: { cookieName: ACCESS_COOKIE, signed: false },
-  });
+export const authPlugin = fp<AuthPluginOptions>(
+  async (fastify, options) => {
+    // The access token travels in a cookie when the caller is the dashboard and
+    // in the `Authorization` header when it is tooling (the bridge agent, curl),
+    // so both are read below.
+    await fastify.register(jwt, {
+      secret: options.env.JWT_SECRET,
+      sign: { expiresIn: Math.floor(options.env.ACCESS_TOKEN_TTL / 1000) },
+      cookie: { cookieName: ACCESS_COOKIE, signed: false },
+    });
 
-  fastify.decorateRequest('accessClaims', undefined);
+    fastify.decorateRequest('accessClaims', undefined);
 
-  const verify = async (request: FastifyRequest): Promise<AccessClaims | null> => {
-    const header = request.headers.authorization;
-    const bearer = header?.toLowerCase().startsWith('bearer ') ? header.slice(7).trim() : null;
-    const cookieToken = request.cookies?.[ACCESS_COOKIE] ?? null;
-    const token = bearer ?? cookieToken;
-    if (!token) return null;
-    try {
-      const claims = fastify.jwt.verify<AccessClaims>(token);
-      request.accessClaims = claims;
-      return claims;
-    } catch {
-      return null;
-    }
-  };
+    const verify = async (request: FastifyRequest): Promise<AccessClaims | null> => {
+      const header = request.headers.authorization;
+      const bearer = header?.toLowerCase().startsWith('bearer ') ? header.slice(7).trim() : null;
+      const cookieToken = request.cookies?.[ACCESS_COOKIE] ?? null;
+      const token = bearer ?? cookieToken;
+      if (!token) return null;
+      try {
+        const claims = fastify.jwt.verify<AccessClaims>(token);
+        request.accessClaims = claims;
+        return claims;
+      } catch {
+        return null;
+      }
+    };
 
-  fastify.decorate('authenticate', async (request: FastifyRequest) => {
-    const claims = await verify(request);
-    if (!claims) throw ApiError.unauthenticated();
-  });
+    fastify.decorate('authenticate', async (request: FastifyRequest) => {
+      const claims = await verify(request);
+      if (!claims) throw ApiError.unauthenticated();
+    });
 
-  fastify.decorate('optionalAuth', async (request: FastifyRequest) => {
-    await verify(request);
-  });
-});
+    fastify.decorate('optionalAuth', async (request: FastifyRequest) => {
+      await verify(request);
+    });
+  },
+  {
+    name: 'auth',
+    // `@fastify/cookie` is registered once by the server (see server.ts).
+    // Registering it here as well throws "decorator 'serializeCookie' has
+    // already been added" at boot, so this states the dependency instead.
+    dependencies: ['@fastify/cookie'],
+  },
+);
 
 /** Cookie options shared by login/refresh so the browser client behaves predictably. */
 export function accessCookieOptions(env: Env) {

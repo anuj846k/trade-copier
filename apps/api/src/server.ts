@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { LogController, type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
@@ -47,7 +47,13 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     },
     trustProxy: true,
     bodyLimit: 2 * 1024 * 1024,
-    disableRequestLogging: env.LOG_LEVEL !== 'debug' && env.LOG_LEVEL !== 'trace',
+    // Per-request access logs are off unless the operator asked for debug
+    // traces: the useful lines come from the engine, and one line per poll from
+    // an agent would bury them. (`disableRequestLogging` at the top level is
+    // deprecated in Fastify 5.)
+    logController: new LogController({
+      disableRequestLogging: env.LOG_LEVEL !== 'debug' && env.LOG_LEVEL !== 'trace',
+    }),
   });
 
   await app.register(cors, {
@@ -55,7 +61,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     credentials: true,
     exposedHeaders: ['content-disposition'],
   });
-  await app.register(cookie);
+  await app.register(cookie, { secret: env.JWT_SECRET });
   await app.register(websocket, {
     options: {
       maxPayload: 8 * 1024 * 1024,
