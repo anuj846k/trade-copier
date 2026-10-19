@@ -76,8 +76,14 @@ export interface EaEvent {
   symbol?: string;
   side?: TradeSide;
   volume?: number;
+  /** Volume actually closed — a partial close reports less than the position held. */
+  closedVolume?: number;
   price?: number;
+  /** Entry price, when the EA can still see it; improves realised-P/L attribution. */
+  openPrice?: number;
   profit?: number;
+  swap?: number;
+  commission?: number;
   magic?: number;
   comment?: string;
   message?: string;
@@ -405,8 +411,8 @@ export class BridgeConnector implements BrokerConnector {
               symbol: event.symbol ?? '',
               side: event.side ?? 'buy',
               volume: event.volume ?? 0,
-              closedVolume: event.volume ?? 0,
-              openPrice: event.price ?? 0,
+              closedVolume: event.closedVolume ?? event.volume ?? 0,
+              openPrice: event.openPrice ?? event.price ?? 0,
               currentPrice: event.price ?? null,
               stopLoss: null,
               takeProfit: null,
@@ -418,8 +424,8 @@ export class BridgeConnector implements BrokerConnector {
               originRequestId: null,
               openedAt: event.at ?? new Date().toISOString(),
               profit: event.profit ?? null,
-              swap: 0,
-              commission: 0,
+              swap: event.swap ?? 0,
+              commission: event.commission ?? 0,
             } satisfies Position),
             closePrice: event.price ?? 0,
             profit: event.profit ?? 0,

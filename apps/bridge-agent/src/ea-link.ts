@@ -287,7 +287,12 @@ export class EaLink {
           return accepted(command.requestId, str(p.ticket), startedAt);
         }
         case 'close_all': {
-          const tickets = Array.isArray(p.originRequestIds) ? null : null;
+          // A ticket list is the precise form of "close what the copier
+          // opened": the engine resolved its own links and sent the tickets, so
+          // the agent just forwards them. `filterMagic` is the coarser form,
+          // and with neither the whole account is closed on purpose
+          // (Equity Protection's "close all trades").
+          const tickets = Array.isArray(p.tickets) ? p.tickets.map((ticket) => String(ticket)) : null;
           const result = await this.connector.closeAll({
             reason: str(p.comment) ?? 'close_all',
             magic: num(p.filterMagic),

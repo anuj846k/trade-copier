@@ -218,8 +218,16 @@ export const commandParamsSchema = z.object({
   expiry: z.string().datetime().nullable().optional(),
   /** Only close positions that carry this magic (used by Equity Protection). */
   filterMagic: z.number().int().nullable().optional(),
-  /** Only close positions tagged with these request ids (copier-placed only). */
-  originRequestIds: z.array(z.string()).optional(),
+  /**
+   * Close exactly these broker tickets.
+   *
+   * This is how "close the positions the copier opened" travels to the
+   * terminal: the engine knows the slave tickets (they are on its trade links),
+   * so it resolves the set and sends it. An earlier revision sent
+   * `originRequestIds` instead and expected the agent to resolve them, which it
+   * cannot — the mapping lives in the engine's outbox.
+   */
+  tickets: z.array(z.string()).optional(),
 });
 export type CommandParams = z.infer<typeof commandParamsSchema>;
 

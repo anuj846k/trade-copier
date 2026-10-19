@@ -112,18 +112,18 @@ describe('bridge protocol: server → agent', () => {
     expect(bridgeOutboundSchema.safeParse(withoutTimeout).success).toBe(false);
   });
 
-  it('accepts a close_all that is scoped to copier-placed tickets', () => {
+  it('accepts a close_all that is scoped to specific tickets', () => {
     const parsed = bridgeOutboundSchema.parse({
       type: 'server.command',
       requestId: 'req_2',
       accountId: 'acc_2',
       kind: 'close_all',
-      params: { originRequestIds: ['req_a', 'req_b'], filterMagic: 20_261_019 },
+      params: { tickets: ['123456789', '987654321'], filterMagic: 20_261_019 },
       timeoutMs: 3_000,
     });
     expect(parsed.type).toBe('server.command');
     if (parsed.type !== 'server.command') return;
-    expect(parsed.params.originRequestIds).toEqual(['req_a', 'req_b']);
+    expect(parsed.params.tickets).toEqual(['123456789', '987654321']);
   });
 
   it('rejects an unknown command kind', () => {

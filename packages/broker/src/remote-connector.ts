@@ -221,7 +221,7 @@ export class RemoteConnector implements BrokerConnector {
     const result = await this.command('close_all', {
       comment: input.reason,
       filterMagic: input.magic ?? null,
-      originRequestIds: input.tickets ? [...input.tickets] : undefined,
+      tickets: input.tickets ? [...input.tickets] : undefined,
     });
     if (!result.ok) return err(this.toError(result));
     return ok({ closed: result.closedVolume ?? 0 });
