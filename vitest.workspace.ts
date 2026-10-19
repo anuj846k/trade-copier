@@ -34,6 +34,12 @@ export default defineWorkspace([
       include: ['test/**/*.test.ts'],
       testTimeout: 30_000,
       hookTimeout: 60_000,
+      // The database-backed suites each drop and rebuild the `public` schema of
+      // the test database, so they must not overlap — a second suite starting
+      // mid-migration corrupts the first one's schema. One fork, one file at a
+      // time; the pure-unit files in this project are fast enough not to care.
+      fileParallelism: false,
+      poolOptions: { forks: { singleFork: true } },
     },
   },
 ]);
