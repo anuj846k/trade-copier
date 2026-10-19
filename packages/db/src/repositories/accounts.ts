@@ -4,7 +4,7 @@ import type { AccountKind, AccountSnapshot, AccountStatus, AssetClass, Platform,
 import { normalizeSymbol, classifyAssetClass, derivePipSize } from '@trade-copier/domain';
 import type { Database } from '../client.js';
 import { id, newToken } from '../ids.js';
-import { accountCredentials, accountSymbols, bridgeAgents, tradingAccounts } from '../schema/tables.js';
+import { accountCredentials, accountShares, accountSymbols, bridgeAgents, tradingAccounts } from '../schema/tables.js';
 import { fromNum, toNum, toNumOrNull } from '../values.js';
 
 export interface AccountRecord {
@@ -123,15 +123,27 @@ export class AccountRepository {
   /** Accounts this user can act on: owned plus shared with copier/manager rights. */
   async listAccessible(userId: string): Promise<AccountRecord[]> {
     const owned = await this.listByUser(userId);
-    const shared = await this.db.execute(sql`
-      select a.* from trading_accounts a
-      join account_shares s on s.account_id = a.id
-      where s.grantee_user_id = ${userId}
-        and s.status = 'active'
-        and a.deleted_at is null
-    `);
-    const sharedRows = extractRows<RawAccount>(shared);
-    return [...owned, ...sharedRows.map(toAccountRecord)];
+    // Joined through the query builder rather than raw SQL: a raw `select a.*`
+    // returns snake_case keys, and every `toAccountRecord` field would come
+    // back undefined.
+    const shared = await this.db
+      .select({ account: tradingAccounts })
+      .from(tradingAccounts)
+      .innerJoin(accountShares, eq(accountShares.accountId, tradingAccounts.id))
+      .where(
+        and(
+          eq(accountShares.granteeUserId, userId),
+          eq(accountShares.status, 'active'),
+          isNull(tradingAccounts.deletedAt),
+        ),
+      )
+      .orderBy(asc(tradingAccounts.createdAt));
+
+    const ownedIds = new Set(owned.map((account) => account.id));
+    return [
+      ...owned,
+      ...shared.map((row) => toAccountRecord(row.account as RawAccount)).filter((account) => !ownedIds.has(account.id)),
+    ];
   }
 
   async findByPlatformLogin(platform: Platform, login: string, server: string): Promise<AccountRecord | null> {

@@ -39,3 +39,31 @@ export function fromJson<T>(value: unknown, fallback: T): T {
   if (value === null || value === undefined) return fallback;
   return value as T;
 }
+
+/**
+ * Coerces a raw-SQL value into a `Date`.
+ *
+ * `db.execute(sql\`…\`)` hands back the driver's *unparsed* values — jsonb is
+ * already an object, integers are numbers, but `timestamptz` arrives as
+ * Postgres' text form (`2026-10-19 05:41:48.243+00`), which is not ISO-8601 and
+ * which V8 would silently read as local time. Drizzle applies its own type
+ * mapping only to schema-aware queries, so every raw claim/mapper goes through
+ * here instead.
+ */
+export function toTimestamp(value: unknown): Date {
+  if (value instanceof Date) return value;
+  if (typeof value === 'number') return new Date(value);
+  if (typeof value === 'string' && value.length > 0) {
+    // "2026-10-19 05:41:48.243+00" → "2026-10-19T05:41:48.243+00:00"
+    const normalised = value.replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00');
+    const parsed = new Date(normalised);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  throw new Error(`Cannot read ${JSON.stringify(value)} as a timestamp`);
+}
+
+/** Same as {@link toTimestamp}, for genuinely nullable columns. */
+export function toTimestampOrNull(value: unknown): Date | null {
+  if (value === null || value === undefined) return null;
+  return toTimestamp(value);
+}

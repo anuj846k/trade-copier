@@ -16,13 +16,14 @@ import {
   accountClosedTrades,
   accountSnapshots,
   accountSymbols,
+  copierFollowers,
   copyCommands,
   executionLogs,
   masterTrades,
   tradeLinks,
 } from '../schema/tables.js';
 import { extractRows } from './accounts.js';
-import { fromNum, fromNumRequired, toNum, toNumOrNull, toMinute } from '../values.js';
+import { fromNum, fromNumRequired, toNum, toNumOrNull, toMinute, toTimestamp, toTimestampOrNull } from '../values.js';
 
 // ---------------------------------------------------------------------------
 // records
@@ -502,7 +503,7 @@ export class EngineRepository {
       where c.id = claimed.id
       returning c.*
     `);
-    return extractRows<RawCommand>(result).map(toCommand);
+    return extractRows<Record<string, unknown>>(result).map(toClaimedCommand);
   }
 
   /** Returns a claimed command to the queue (agent offline, transient error). */
@@ -884,13 +885,54 @@ export class EngineRepository {
       .returning({ id: tradeLinks.id });
     return rows.length;
   }
+
+  /**
+   * Deletes everything a copier has produced: links, mirrored master trades,
+   * commands, execution logs and the follower-side closed-trade records.
+   *
+   * For the dev simulator, so a second run starts where the first one did
+   * instead of inheriting old links whose slave tickets no longer exist at the
+   * (mock) broker. The engine itself never calls this. Children go first so the
+   * foreign keys stay satisfied at every step.
+   */
+  async clearCopierHistory(copierId: string): Promise<{
+    links: number;
+    trades: number;
+    commands: number;
+    logs: number;
+    closedTrades: number;
+  }> {
+    const followers = await this.db
+      .select({ id: copierFollowers.id })
+      .from(copierFollowers)
+      .where(eq(copierFollowers.copierId, copierId));
+    const followerIds = followers.map((row) => row.id);
+
+    const logs = await this.db.delete(executionLogs).where(eq(executionLogs.copierId, copierId)).returning({ id: executionLogs.id });
+    const commands = await this.db.delete(copyCommands).where(eq(copyCommands.copierId, copierId)).returning({ id: copyCommands.id });
+    const links = await this.db.delete(tradeLinks).where(eq(tradeLinks.copierId, copierId)).returning({ id: tradeLinks.id });
+    const trades = await this.db.delete(masterTrades).where(eq(masterTrades.copierId, copierId)).returning({ id: masterTrades.id });
+    const closedTrades =
+      followerIds.length > 0
+        ? await this.db
+            .delete(accountClosedTrades)
+            .where(inArray(accountClosedTrades.followerId, followerIds))
+            .returning({ id: accountClosedTrades.id })
+        : [];
+
+    return {
+      links: links.length,
+      trades: trades.length,
+      commands: commands.length,
+      logs: logs.length,
+      closedTrades: closedTrades.length,
+    };
+  }
 }
 
 // ---------------------------------------------------------------------------
 // mappers
 // ---------------------------------------------------------------------------
-
-interface RawCommand extends Omit<CommandRecord, 'requestedVolume'> {}
 
 function toMasterTrade(row: typeof masterTrades.$inferSelect): MasterTradeRecord {
   return {
@@ -947,8 +989,13 @@ function toLink(row: typeof tradeLinks.$inferSelect): TradeLinkRecord {
   };
 }
 
-function toCommand(row: typeof copyCommands.$inferSelect | RawCommand): CommandRecord {
-  const source = row as typeof copyCommands.$inferSelect;
+/**
+ * Maps a `copy_commands` row to its record form.
+ *
+ * Used by the query-builder paths, which apply the schema's column types.
+ */
+function toCommand(row: typeof copyCommands.$inferSelect): CommandRecord {
+  const source = row;
   return {
     id: source.id,
     requestId: source.requestId,
@@ -972,5 +1019,42 @@ function toCommand(row: typeof copyCommands.$inferSelect | RawCommand): CommandR
     trace: (source.trace ?? {}) as Record<string, unknown>,
     latencyMs: source.latencyMs,
     createdAt: source.createdAt,
+  };
+}
+
+/**
+ * Maps the row `claimCommands` returns.
+ *
+ * The claim is raw SQL — an atomic `UPDATE … FROM (SELECT … FOR UPDATE SKIP
+ * LOCKED)` is not expressible in the query builder — and raw results bypass
+ * drizzle's column mapping: keys are the *column* names and `timestamptz`
+ * arrives as Postgres text rather than a `Date`. This function is the single
+ * place that translation happens, which is why the shapes are spelled out.
+ */
+function toClaimedCommand(row: Record<string, unknown>): CommandRecord {
+  const latency = row['latency_ms'];
+  return {
+    id: String(row['id']),
+    requestId: String(row['request_id']),
+    copierId: (row['copier_id'] as string | null) ?? null,
+    followerId: (row['follower_id'] as string | null) ?? null,
+    masterTradeId: (row['master_trade_id'] as string | null) ?? null,
+    linkId: (row['link_id'] as string | null) ?? null,
+    accountId: String(row['account_id']),
+    kind: row['kind'] as CommandRecord['kind'],
+    params: row['params'] as CommandRecord['params'],
+    seq: toNum(row['seq'] as number),
+    status: row['status'] as CommandRecord['status'],
+    priority: toNum(row['priority'] as number),
+    attempts: toNum(row['attempts'] as number),
+    maxAttempts: toNum(row['max_attempts'] as number, 24),
+    nextAttemptAt: toTimestamp(row['next_attempt_at']),
+    retryDeadlineAt: toTimestampOrNull(row['retry_deadline_at']),
+    lockedBy: (row['locked_by'] as string | null) ?? null,
+    lastErrorCode: (row['last_error_code'] as string | null) ?? null,
+    lastErrorMessage: (row['last_error_message'] as string | null) ?? null,
+    trace: (row['trace'] ?? {}) as Record<string, unknown>,
+    latencyMs: latency === null || latency === undefined ? null : toNum(latency as number),
+    createdAt: toTimestamp(row['created_at']),
   };
 }

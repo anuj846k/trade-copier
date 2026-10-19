@@ -745,7 +745,7 @@ export const auditLogs = pgTable(
   {
     id: text('id').primaryKey(),
     userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
-    action: enums.auditActionEnum('action').notNull(),
+    action: text('action').$type<enums.AuditAction>().notNull(),
     entityType: text('entity_type'),
     entityId: text('entity_id'),
     meta: jsonb('meta').$type<Record<string, unknown>>().notNull().default({}),

@@ -8,6 +8,13 @@
       "when": 1792346121604,
       "tag": "0000_luxuriant_pixie",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792389016716,
+      "tag": "0001_amazing_the_renegades",
+      "breakpoints": true
     }
   ]
 }

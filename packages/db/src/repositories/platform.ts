@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, inArray, lte, sql } from 'drizzle-orm';
 import type { AccountShareRole, EquityProtection, NotificationChannelKind } from '@trade-copier/contracts';
-import type { EquityProtectionRule } from '../schema/enums.js';
+import type { AuditAction, EquityProtectionRule } from '../schema/enums.js';
 import type { Database } from '../client.js';
 import { id } from '../ids.js';
 import {
@@ -17,7 +17,7 @@ import {
   subscriptions,
 } from '../schema/tables.js';
 import { extractRows } from './accounts.js';
-import { fromNum, fromNumRequired, toNum, toNumOrNull, toDay } from '../values.js';
+import { fromNum, fromNumRequired, toNum, toNumOrNull, toDay, toTimestamp } from '../values.js';
 
 export interface EquityProtectionRecord extends EquityProtection {
   accountId: string;
@@ -345,11 +345,11 @@ export class PlatformRepository {
           updated_at = now()
       from claimed
       where n.id = claimed.id
-        and n.id = claimed.id
       returning n.*
     `);
     void workerId;
-    return extractRows<typeof notificationOutbox.$inferSelect>(result);
+    // Raw rows carry column names and Postgres timestamps, not `Date`s.
+    return extractRows<Record<string, unknown>>(result).map(toClaimedNotification);
   }
 
   async markNotificationFailed(input: {
@@ -559,7 +559,7 @@ export class PlatformRepository {
 
   async audit(input: {
     userId?: string | null;
-    action: string;
+    action: AuditAction;
     entityType?: string | null;
     entityId?: string | null;
     meta?: Record<string, unknown>;
@@ -569,7 +569,7 @@ export class PlatformRepository {
     await this.db.insert(auditLogs).values({
       id: id('audit'),
       userId: input.userId ?? null,
-      action: input.action as never,
+      action: input.action,
       entityType: input.entityType ?? null,
       entityId: input.entityId ?? null,
       meta: input.meta ?? {},
@@ -638,7 +638,8 @@ export class PlatformRepository {
       where j.id = claimed.id
       returning j.*
     `);
-    return extractRows<typeof jobs.$inferSelect>(result).map(toJob);
+    // Raw rows carry column names and Postgres timestamps, not `Date`s.
+    return extractRows<Record<string, unknown>>(result).map(toClaimedJob);
   }
 
   async completeJob(jobId: string, input: { failed?: boolean; error?: string | null; nextRunAt?: Date | null }): Promise<void> {
@@ -794,5 +795,47 @@ function toJob(row: typeof jobs.$inferSelect): JobRecord {
     attempts: row.attempts,
     maxAttempts: row.maxAttempts,
     lockedBy: row.lockedBy,
+  };
+}
+
+/** Maps the raw row `claimJobs` returns (column names, unparsed timestamps). */
+function toClaimedJob(row: Record<string, unknown>): JobRecord {
+  return {
+    id: String(row['id']),
+    kind: String(row['kind']),
+    payload: (row['payload'] ?? {}) as Record<string, unknown>,
+    status: row['status'] as JobRecord['status'],
+    runAt: toTimestamp(row['run_at']),
+    attempts: toNum(row['attempts'] as number),
+    maxAttempts: toNum(row['max_attempts'] as number, 5),
+    lockedBy: (row['locked_by'] as string | null) ?? null,
+  };
+}
+
+/**
+ * The subset of a claimed notification the delivery loop needs.
+ *
+ * Deliberately not the whole table row: the sender only ever reads these
+ * fields, and narrowing the contract here is what keeps the raw-SQL mapper
+ * honest.
+ */
+export interface ClaimedNotification {
+  readonly id: string;
+  readonly userId: string;
+  readonly channelId: string;
+  readonly event: string;
+  readonly payload: Record<string, unknown>;
+  readonly attempts: number;
+}
+
+/** Maps the raw row `claimNotifications` returns. */
+function toClaimedNotification(row: Record<string, unknown>): ClaimedNotification {
+  return {
+    id: String(row['id']),
+    userId: String(row['user_id']),
+    channelId: String(row['channel_id']),
+    event: String(row['event']),
+    payload: (row['payload'] ?? {}) as Record<string, unknown>,
+    attempts: toNum(row['attempts'] as number),
   };
 }

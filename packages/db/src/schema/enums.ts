@@ -113,27 +113,36 @@ export const equityProtectionRuleEnum = pgEnum('equity_protection_rule', [
   'absolute_max_equity',
 ]);
 
-export const auditActionEnum = pgEnum('audit_action', [
-  'login',
-  'logout',
-  'register',
-  'password_changed',
-  'account_created',
-  'account_deleted',
-  'account_enabled',
-  'account_disabled',
-  'copier_created',
-  'copier_updated',
-  'copier_deleted',
-  'follower_updated',
-  'symbol_mapping_updated',
-  'emergency_close',
-  'api_key_created',
-  'api_key_revoked',
-  'share_created',
-  'share_revoked',
-  'equity_protection_updated',
-]);
+/**
+ * Audit verbs.
+ *
+ * Deliberately a TypeScript union rather than a PostgreSQL enum: the audit
+ * trail is an append-only record of what the system did, and its vocabulary
+ * grows with every feature. An enum would mean a migration per new verb (and,
+ * worse, a failed request when one was forgotten — which is exactly how the
+ * first version of this shipped: the routes wrote `user.login` while the column
+ * only accepted `login`). The union keeps typos out at compile time; the column
+ * stays `text`.
+ */
+export type AuditAction =
+  | 'user.login'
+  | 'user.login_failed'
+  | 'user.refresh_reuse_detected'
+  | 'user.password_changed'
+  | 'user.2fa_enabled'
+  | 'user.2fa_disabled'
+  | 'agent.created'
+  | 'agent.revoked'
+  | 'account.created'
+  | 'account.deleted'
+  | 'account.credentials_updated'
+  | 'account.shared'
+  | 'copier.created'
+  | 'copier.deleted'
+  | 'follower.added'
+  | 'equity_protection.updated'
+  | 'notification_channel.upserted'
+  | 'billing.subscribe_requested';
 
 /**
  * TypeScript mirrors of the enums above. Drizzle infers these from `pgEnum`,
