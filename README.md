@@ -92,7 +92,7 @@ packages/
   broker/         One connector interface + mock / bridge / remote implementations
 integrations/mt5/ Expert Advisor skeleton that talks to the bridge agent
 tools/            Seed, reset, copy simulator, dev database helpers
-docs/             Architecture, API reference, bridge protocol, manual steps
+docs/             Architecture, API reference, bridge protocol, security, manual steps, walkthrough
 FEATURES.md       Feature ledger: what was inferred, from where, and what is unknown
 ```
 
@@ -141,7 +141,11 @@ They were worth writing: running them the first time found four defects that
 reading the code had not — a raw-SQL row mapping that made every retry throw, an
 audit column whose enum no longer matched a single call site, a duplicated
 cookie plugin that stopped the server from booting at all, and an engine that
-could not price a mock account. They are the reason `pnpm sim` works.
+could not price a mock account. Running the simulator end to end then found two
+more: mock tickets reused between runs (which mis-attributed P/L and collided
+with `account_closed_trades`), and a `close_all` scope the bridge agent could
+never resolve, which left Equity Protection's "close copied trades" silently
+doing nothing. `docs/walkthrough.html` §7 walks through all six.
 
 ## Documentation
 
@@ -151,6 +155,8 @@ could not price a mock account. They are the reason `pnpm sim` works.
 | `docs/API.md` | Every HTTP route, the WebSocket channels, error codes |
 | `docs/BRIDGE.md` | Agent/EA protocol, the local EA HTTP contract, the MT5 integration |
 | `docs/MANUAL-STEPS.md` | What you must do yourself: secrets, migrations, a real broker, going live |
+| `docs/SECURITY.md` | Controls, threat model and the limitations that are real |
+| `docs/walkthrough.html` | **Start here if you want the reasoning**: how the reference product was reverse-engineered, every decision with its rationale, the six defects found by running it, and exactly what is verified vs unverified |
 | `FEATURES.md` | Feature ledger with sources and the list of unknowns |
 
 ## Requirements

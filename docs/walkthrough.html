@@ -1,0 +1,999 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Trade Copier — how it was reverse-engineered and built</title>
+<style>
+  :root{
+    --bg:#ffffff; --fg:#1f2328; --muted:#5c6672; --line:#e4e7eb; --soft:#f6f7f9;
+    --accent:#2563eb; --accent-soft:#eef3ff; --warn:#b45309; --warn-soft:#fff8ed;
+    --ok:#15803d; --ok-soft:#effaf1; --bad:#b91c1c; --bad-soft:#fef2f2;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#0d1117; --fg:#e6edf3; --muted:#9198a1; --line:#21262d; --soft:#161b22;
+      --accent:#6ea8fe; --accent-soft:#12233f; --warn:#e3a008; --warn-soft:#2a2113;
+      --ok:#4ade80; --ok-soft:#12261a; --bad:#f87171; --bad-soft:#2a1616;
+    }
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.65 var(--sans);-webkit-font-smoothing:antialiased}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code,kbd{font-family:var(--mono);font-size:.875em;background:var(--soft);border:1px solid var(--line);border-radius:4px;padding:.1em .35em}
+  pre{font-family:var(--mono);font-size:12.5px;line-height:1.55;background:var(--soft);border:1px solid var(--line);border-radius:10px;padding:16px;overflow:auto}
+  pre code{background:none;border:0;padding:0;font-size:inherit}
+  h1,h2,h3,h4{line-height:1.25;margin:0 0 .5em}
+  h1{font-size:clamp(28px,4vw,40px);letter-spacing:-.02em}
+  h2{font-size:24px;margin-top:0;padding-top:8px;letter-spacing:-.01em}
+  h3{font-size:18px;margin-top:28px}
+  h4{font-size:15px;margin-top:20px}
+  p,li{color:var(--fg)}
+  .wrap{display:grid;grid-template-columns:264px minmax(0,1fr);gap:40px;max-width:1280px;margin:0 auto;padding:0 28px}
+  @media (max-width:960px){.wrap{grid-template-columns:1fr}.toc{position:static!important;max-height:none!important}}
+  header.hero{border-bottom:1px solid var(--line);background:linear-gradient(180deg,var(--accent-soft),transparent)}
+  header.hero .inner{max-width:1280px;margin:0 auto;padding:44px 28px 32px}
+  .kicker{font:600 12px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}
+  .lede{font-size:18px;color:var(--muted);max-width:74ch}
+  .toc{position:sticky;top:24px;align-self:start;max-height:calc(100vh - 48px);overflow:auto;padding:24px 0 40px;font-size:13.5px}
+  .toc h2{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 10px}
+  .toc ol{list-style:none;margin:0;padding:0}
+  .toc li{margin:0}
+  .toc a{display:block;padding:4px 10px;border-left:2px solid var(--line);color:var(--muted)}
+  .toc a:hover{color:var(--fg);border-left-color:var(--accent);text-decoration:none}
+  .toc .sub a{padding-left:22px;font-size:13px}
+  main{padding:32px 0 96px;min-width:0}
+  section{padding:28px 0;border-bottom:1px solid var(--line)}
+  section:last-child{border-bottom:0}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:12px;margin:22px 0 0}
+  .stat{background:var(--soft);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .stat b{display:block;font-size:22px;letter-spacing:-.02em}
+  .stat span{color:var(--muted);font-size:12.5px}
+  .box{border:1px solid var(--line);border-left:3px solid var(--accent);background:var(--soft);border-radius:8px;padding:14px 18px;margin:18px 0}
+  .box.warn{border-left-color:var(--warn);background:var(--warn-soft)}
+  .box.bad{border-left-color:var(--bad);background:var(--bad-soft)}
+  .box.ok{border-left-color:var(--ok);background:var(--ok-soft)}
+  .box p:first-child{margin-top:0}.box p:last-child{margin-bottom:0}
+  table{width:100%;border-collapse:collapse;margin:18px 0;font-size:14px}
+  th,td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--line)}
+  th{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--fg)}
+  tbody tr:hover{background:var(--soft)}
+  td code{white-space:nowrap}
+  .tag{display:inline-block;font:600 10.5px/1 var(--sans);letter-spacing:.06em;text-transform:uppercase;padding:3px 7px;border-radius:99px;border:1px solid var(--line);color:var(--muted);background:var(--bg);white-space:nowrap}
+  .tag.obs{color:var(--ok);border-color:var(--ok)}
+  .tag.der{color:var(--accent);border-color:var(--accent)}
+  .tag.inf{color:var(--warn);border-color:var(--warn)}
+  .tag.unk{color:var(--bad);border-color:var(--bad)}
+  .cards{display:grid;gap:14px;margin:20px 0}
+  .card{border:1px solid var(--line);border-radius:10px;padding:16px 18px;background:var(--bg)}
+  .card h4{margin:0 0 6px;font-size:15.5px}
+  .card .why{margin:0 0 8px}
+  .card .rej{margin:0;color:var(--muted);font-size:13.5px}
+  .card .rej b{color:var(--fg)}
+  .card .ref{display:block;margin-top:8px;font:12px/1.5 var(--mono);color:var(--muted)}
+  details{border:1px solid var(--line);border-radius:8px;padding:12px 16px;margin:14px 0;background:var(--bg)}
+  details[open]{background:var(--soft)}
+  summary{cursor:pointer;font-weight:600;font-size:14.5px}
+  details pre{margin:12px 0 0;background:var(--bg)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media (max-width:820px){.grid2{grid-template-columns:1fr}}
+  .pill{display:inline-block;font:600 11px/1 var(--mono);padding:3px 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent);border:1px solid var(--line)}
+  .flow{font-size:12px}
+  footer{max-width:1280px;margin:0 auto;padding:28px;color:var(--muted);font-size:13.5px;border-top:1px solid var(--line)}
+  hr{border:0;border-top:1px solid var(--line);margin:28px 0}
+  .muted{color:var(--muted)}
+  .nowrap{white-space:nowrap}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="inner">
+    <div class="kicker">Reverse-engineering walkthrough</div>
+    <h1>A production trade copier, inferred from a public product and then built</h1>
+    <p class="lede">
+      Everything below is the reasoning trail for <code>/Volumes/T7/trade-copier</code>: how the
+      reference product (<a href="https://tradersconnect.com/copier">tradersconnect.com/copier</a>)
+      was reverse-engineered from public sources alone, what was decided and why, which decisions
+      turned out to be wrong when the code was actually run, and what remains unproven.
+      It is written to be read top to bottom over coffee — with the option to skip to §7 if you
+      only want the bugs that mattered.
+    </p>
+    <div class="stats">
+      <div class="stat"><b>19</b><span>commits on <code>main</code></span></div>
+      <div class="stat"><b>234</b><span>tests, all green</span></div>
+      <div class="stat"><b>66</b><span>features in the ledger</span></div>
+      <div class="stat"><b>11</b><span>explicit unknowns</span></div>
+      <div class="stat"><b>6</b><span>defects found by running it</span></div>
+      <div class="stat"><b>~28k</b><span>lines of TypeScript</span></div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#read-me-first">Read me first</a></li>
+    <li><a href="#method">1. The method</a></li>
+    <li><a href="#sources">2. Sources</a></li>
+    <li><a href="#ledger">3. What the reference does</a></li>
+    <li><a href="#unknowns">4. The unknowns</a></li>
+    <li><a href="#shape">5. Shape of the build</a></li>
+    <li><a href="#decisions">6. Decisions &amp; rationale</a>
+      <ol class="sub">
+        <li><a href="#d-method">Method &amp; contracts</a></li>
+        <li><a href="#d-money">Forex correctness</a></li>
+        <li><a href="#d-data">Data &amp; durability</a></li>
+        <li><a href="#d-engine">Engine</a></li>
+        <li><a href="#d-auth">Auth &amp; secrets</a></li>
+        <li><a href="#d-bridge">Broker boundary</a></li>
+        <li><a href="#d-build">Monorepo &amp; web</a></li>
+        <li><a href="#d-test">Testing</a></li>
+      </ol>
+    </li>
+    <li><a href="#defects">7. Six defects, found by running it</a></li>
+    <li><a href="#sizing">8. The sizing formulas</a></li>
+    <li><a href="#verified">9. Verified vs unverified</a></li>
+    <li><a href="#commits">10. Commit history</a></li>
+    <li><a href="#run">11. Running it yourself</a></li>
+    <li><a href="#next">12. What I would fix next</a></li>
+    <li><a href="#map">Appendix: file map</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<section id="read-me-first">
+  <h2>Read me first</h2>
+  <p>
+    The honest one-paragraph summary: <b>the copier is real and it runs</b> — you can start it
+    against PostgreSQL, seed three accounts, and watch a master trade get sized per risk model,
+    mapped across broker symbol suffixes, written to a durable outbox and "filled" by a mock
+    connector, with P/L attributed back to the link. That path is covered by 234 tests and it is
+    the part I would defend in review.
+  </p>
+  <p>
+    The part I would not defend is anything that needs a real broker. MT4/MT5 expose no supported
+    server-side API, so the terminal side is an Expert Advisor that polls a local agent. I wrote
+    that EA against the documented MQL5 API and this repo's own agent contract, and it has
+    <b>never been compiled</b> — there is no MetaTrader in this environment. Same for the vendor's
+    "20–30 ms" latency claim: I did not reproduce it, and this design cannot achieve it, so it is
+    not repeated anywhere in the repo.
+  </p>
+  <div class="box">
+    <p><b>If you read only four things:</b></p>
+    <ol style="margin:.4em 0 0">
+      <li><a href="#defects">§7 Six defects found by running it</a> — the four runtime bugs all
+        lived in code that type-checked and looked correct. That is the most useful lesson here.</li>
+      <li><a href="#unknowns">§4 The unknowns</a> — what the reference product does not say
+        publicly, and how each gap was handled <em>without</em> guessing.</li>
+      <li><a href="#sizing">§8 The sizing formulas</a> — writing these down is what exposed that my
+        first draft of the docs was wrong, not the code.</li>
+      <li><a href="#verified">§9 Verified vs unverified</a> — the exact boundary of what is proven.</li>
+    </ol>
+  </div>
+</section>
+
+<section id="method">
+  <h2>1. The method</h2>
+  <p>
+    The working discipline came from <b>REA — “Reverse Engineer Anything”</b>
+    (<a href="https://github.com/morluto/rea">github.com/morluto/rea</a>, MIT), checked out locally
+    into <code>rea/</code> and gitignored — it is tooling, not part of the app. I did not use its
+    binary/runtime instrumentation (there was no binary to instrument: the reference is a hosted
+    SaaS). What I took is its <em>epistemic</em> discipline, which is what actually matters when
+    the thing you are reverse-engineering is a product rather than an executable:
+  </p>
+  <ol>
+    <li><b>Evidence before conclusions.</b> Fetch, cache and quote the primary source. Never let a
+      summary of a source replace the source.</li>
+    <li><b>Tag every conclusion by how you know it.</b> Four tags, and only four:
+      <span class="tag obs">Observed</span> stated by a first-party source;
+      <span class="tag der">Derived</span> a direct consequence of an observation;
+      <span class="tag inf">Inferred</span> an engineering requirement for this class of product,
+      <em>flagged as unverified</em>;
+      <span class="tag unk">Unknown</span> could not be verified — so it is <em>not guessed</em>.</li>
+    <li><b>Unknowns are deliverables.</b> An unknown written down and handled deliberately is worth
+      more than a plausible invention that nobody can distinguish from fact.</li>
+    <li><b>Result algebra over exceptions.</b> Model expected failures as values, so the
+      “everything is a special case” parts stay in one shape.</li>
+    <li><b>Dependencies flow inward.</b> A pure core that knows nothing about the database, the
+      network or a logger.</li>
+  </ol>
+  <p>
+    The output of step 1–3 is <code>FEATURES.md</code>: 66 features (F1–F66), 11 behavioural rules
+    extracted as <em>test oracles</em>, and 11 explicit unknowns (U1–U11). It was committed
+    <em>before</em> the implementation — commit <code>08a0f13</code> — so the spec could not be
+    retro-fitted to whatever the code ended up doing. That ordering is the whole point: it makes the
+    ledger falsifiable.
+  </p>
+  <div class="box ok">
+    <p><b>How the method paid off.</b> Two things stand out in hindsight. First, tagging
+      <em>Derived</em> vs <em>Inferred</em> forced me to notice that “close events must be mirrored”
+      is a consequence of “trades are mirrored”, whereas “reconcile slave state after a disconnect”
+      is <em>not</em> stated anywhere — which is exactly why reconciliation ships off by default
+      (<a href="#unknowns">U7</a>). Second, having U1 (the latency claim) written down as an unknown
+      meant I did not quietly inherit a marketing number into a sync interval.</p>
+  </div>
+  <p>
+    Everything else — the stack, the layering, the money maths, the wire protocol — is in §6 as
+    decision cards, each with the reason <em>and the alternative I rejected</em>, because the
+    rejected alternative is usually the more interesting half.
+  </p>
+</section>
+
+<section id="sources">
+  <h2>2. Sources</h2>
+  <p>
+    Every claim about the reference product traces to one of these. All first-party: the vendor's
+    own site and docs. No third-party reviews, no forum posts, no assumed behaviour from a
+    competitor.
+  </p>
+  <table>
+    <thead><tr><th>ID</th><th>Source</th><th>What it was used for</th></tr></thead>
+    <tbody>
+      <tr><td>S1</td><td><a href="https://tradersconnect.com/copier">tradersconnect.com/copier</a></td><td>Product surface: master→slaves topology, the six CFD platforms, risk types by name, feature bullets, pricing shape, “20–30 ms” and “no VPS/EA” claims.</td></tr>
+      <tr><td>S2</td><td><a href="https://tradersconnect.com/faq">tradersconnect.com/faq</a></td><td>Platform list, mobile-app status, general objections — used to confirm S1 rather than to introduce new features.</td></tr>
+      <tr><td>S3</td><td><a href="https://docs.tradersconnect.com/">docs.tradersconnect.com</a> — 18 public pages under <code>trade-copier/*</code>, <code>trading-accounts/*</code>, <code>notifications/*</code>, <code>account-management/*</code></td><td>The real specification. Risk types, copier options, symbol mapping, filters, trading hours, pause, equity protection, emergency close-all, error codes, analytics, notification tokens.</td></tr>
+      <tr><td>S4</td><td><a href="https://docs.tradersconnect.com/sitemap.xml">docs.tradersconnect.com/sitemap.xml</a></td><td>The page inventory — used to check that S3 was complete rather than “the pages I happened to click”.</td></tr>
+    </tbody>
+  </table>
+  <p>
+    The pages from S3 were fetched to plain text and cached, so the feature table cites a page name
+    rather than my memory of a page. The cache (<code>/tmp/tc-evidence/</code>) is a temp
+    directory and will not survive; the citations in <code>FEATURES.md</code> are the durable
+    record, and every one names the doc page it came from:
+  </p>
+  <pre class="flow"><code>account-management_account-limits   account-sharing            common-errors
+copier-management                   faq-docs                   notifications_email_configuration
+notifications_introduction          risk-types                 symbols
+trade-copier_copier-options         trade-copier_error-codes   trade-copier_override-symbol-settings
+trade-copier_pause-copier           trade-copier_trading-hours trading-accounts_analytics
+trading-accounts_emergency-close-all trading-accounts_equity-protection  use-cases</code></pre>
+  <h3>Implementation sources (not the reference product)</h3>
+  <ul>
+    <li><a href="https://github.com/morluto/rea">morluto/rea</a> — the REA discipline in §1.</li>
+    <li><a href="https://ui.shadcn.com">shadcn/ui</a>, style <code>new-york</code> — the dashboard's component layer. Components are copied into the repo, so there is no runtime dependency on the registry.</li>
+    <li><a href="https://tweakcn.com/r/themes/modern-minimal.json">tweakcn · <code>modern-minimal</code></a> — the design tokens, translated into Tailwind v4 custom properties in <code>apps/web/app/globals.css</code>, so shadcn component source stays unmodified.</li>
+    <li><a href="https://www.npmjs.com/package/decimal.js">decimal.js</a>, <a href="https://www.npmjs.com/package/luxon">luxon</a>, <a href="https://zod.dev">zod</a> — money arithmetic, timezones, validation. Used as published packages.</li>
+  </ul>
+  <div class="box">
+    <p><b>A note on “use GitHub repos for the algorithms”.</b> Nothing was vendored. The forex
+      algorithms here (pip size, pip value, lot sizing, volume normalisation, symbol-suffix
+      matching, market-session windows) are defined by convention and written out explicitly in
+      <code>packages/domain</code> with their formulas in the docs — because the risk in this domain
+      is not a hard algorithm, it is a <em>convention mismatch</em> (is a pip 10 points? does
+      “100%” mean 1:1?), and a copied implementation hides the convention instead of stating it.
+      Where a library genuinely was the right call, it is a published package with a permissive
+      licence, listed above. There is no copied GPL or unlicensed code in this repository — which
+      matters, because <code>origin</code> is public.</p>
+  </div>
+</section>
+
+<section id="ledger">
+  <h2>3. What the reference product does</h2>
+  <p>
+    <code>FEATURES.md</code> holds 66 features in eleven groups. This is the shape of it, with the
+    tag distribution — the tag column is the interesting part, because it shows where the public
+    documentation actually stops.
+  </p>
+  <table>
+    <thead><tr><th>Group</th><th>What it covers</th><th>Features</th><th>Mostly</th></tr></thead>
+    <tbody>
+      <tr><td>1.1 Topology</td><td>Master → many slaves, three master states, pause, demo/live, investor password, account sharing</td><td>F1–F9</td><td><span class="tag obs">Observed</span></td></tr>
+      <tr><td>1.2 Platforms</td><td>MT4/MT5/cTrader/Match-Trader/TradeLocker/DXtrade; futures platforms; cloud hosting claim</td><td>F10–F13</td><td><span class="tag obs">Observed</span></td></tr>
+      <tr><td>1.3 Risk / sizing</td><td>Five risk types, lot refiner, contract alignment, min/max lot clamps</td><td>F14–F22</td><td><span class="tag obs">Observed</span></td></tr>
+      <tr><td>1.4 Stops</td><td>Copy SL/TP, fixed SL/TP in pips, SL/TP refinement, Strict Close, Reverse Trade</td><td>F23–F27</td><td><span class="tag obs">Observed</span></td></tr>
+      <tr><td>1.5 Orders</td><td>Pending orders, pending-off ⇒ copy on fill, expiry</td><td>F28–F31</td><td><span class="tag obs">Observed</span> + <span class="tag inf">Inferred</span></td></tr>
+      <tr><td>1.6 Filters &amp; schedule</td><td>Magic, comment, side, lot filters; per-weekday trading hours</td><td>F32–F37</td><td><span class="tag obs">Observed</span></td></tr>
+      <tr><td>1.7 Symbols</td><td>Per-symbol enable/disable switch, auto-mapping with suffixes, per-symbol overrides</td><td>F38–F46</td><td><span class="tag obs">Observed</span></td></tr>
+      <tr><td>1.8 Safety</td><td>Equity protection rules, emergency close-all, 15-minute retry window</td><td>F47–F54</td><td><span class="tag obs">Observed</span></td></tr>
+      <tr><td>1.9 Observability</td><td>Per-copier logs with machine-readable codes, log-level filter, notifications with <code>%TOKEN%</code> templates</td><td>F55–F58</td><td><span class="tag obs">Observed</span></td></tr>
+      <tr><td>1.10 Analytics</td><td>Account performance, copier performance, master detail view</td><td>F59–F61</td><td><span class="tag obs">Observed</span></td></tr>
+      <tr><td>1.11 Accounts &amp; billing</td><td>Account limits by plan, subscription tiers, entitlements</td><td>F62–F66</td><td><span class="tag obs">Observed</span></td></tr>
+    </tbody>
+  </table>
+
+  <h3>The eleven test oracles</h3>
+  <p>
+    Documentation that only lists features cannot be tested against. So §2 of the ledger distils
+    the behavioural <em>rules</em> the docs state — the sentences you can turn into an assertion.
+    These are where the domain tests come from; each test names the rule it pins.
+  </p>
+  <table>
+    <thead><tr><th>Rule (as stated by the reference)</th><th>Pinned by</th></tr></thead>
+    <tbody>
+      <tr><td>100% = 1:1 volume; 50% halves; 150% = 1.5×</td><td><code>sizing.test.ts</code></td></tr>
+      <tr><td>Balance Multiplier scales slave volume by <code>slaveBalance / masterBalance</code> — or by a pinned reference balance</td><td><code>sizing.test.ts</code></td></tr>
+      <tr><td>Fixed % Risk sizes from the master's stop distance: <code>riskMoney / (slPips × pipValuePerLot)</code></td><td><code>sizing.test.ts</code></td></tr>
+      <tr><td>Refiners are additive and may be negative; SL/TP refiners work in <b>pips</b></td><td><code>sizing.test.ts</code>, <code>copy-planner.test.ts</code></td></tr>
+      <tr><td>Min-lot clamp only bites below the min; max-lot only above the max</td><td><code>sizing.test.ts</code></td></tr>
+      <tr><td>Strict Close ⇒ the slave ignores master close events</td><td><code>copy-planner.test.ts</code></td></tr>
+      <tr><td>Reverse Trade must not also copy SL/TP (the docs call the combination out)</td><td><code>copy-planner.test.ts</code></td></tr>
+      <tr><td>Pending-off ⇒ copy as market on fill; pending-on ⇒ replicate the pending order</td><td><code>copy-planner.test.ts</code></td></tr>
+      <tr><td>Trading hours gate <b>new entries only</b>; modification and close always flow</td><td><code>copy-planner.test.ts</code>, <code>market.test.ts</code></td></tr>
+      <tr><td>A disabled symbol is ignored, with the reason logged</td><td><code>symbols.test.ts</code></td></tr>
+      <tr><td>An unmapped symbol fails with an actionable error code</td><td><code>symbols.test.ts</code></td></tr>
+      <tr><td>Outside market hours ⇒ retry for up to 15 minutes before failing</td><td><code>copy-planner.test.ts</code>, outbox retry window in <code>ARCHITECTURE.md</code></td></tr>
+      <tr><td>Every failure must be retrievable as a log row with a machine-readable code</td><td><code>contracts/test/schemas.test.ts</code> (the code enum), <code>copy-engine.test.ts</code> (the rows)</td></tr>
+    </tbody>
+  </table>
+  <p class="muted">
+    Note the last row: the reference documents an error-code vocabulary, and this build reuses it
+    verbatim (<code>packages/contracts/src/errors.ts</code>), including the metadata each code
+    carries — whether it is retryable, a user-facing message, and a hint. A code in a log row, a
+    code in a notification and a code in an HTTP response therefore all mean the same thing.
+  </p>
+</section>
+
+<section id="unknowns">
+  <h2>4. The unknowns</h2>
+  <p>
+    This is the part of the method I would most defend. When the public documentation stops, the
+    options are: invent something plausible, or write down that you do not know and choose a
+    <em>default that fails safe</em>. Each of these is one of the four tags from §1 — mostly
+    <span class="tag unk">Unknown</span> — and each has a stated handling.
+  </p>
+  <table>
+    <thead><tr><th>#</th><th>Unknown</th><th>How this build handles it</th></tr></thead>
+    <tbody>
+      <tr><td>U1</td><td>What the “20–30 ms” latency claim actually measures</td><td><b>Not reproduced and not repeated.</b> The engine measures and logs real per-command latency; the agent's minimum copy latency is the poll interval plus broker execution, and <code>docs/BRIDGE.md</code> says so.</td></tr>
+      <tr><td>U2</td><td>Their internal architecture, queueing, worker topology</td><td>Replaced by a design of my own, written down in <code>docs/ARCHITECTURE.md</code> — stated as <em>this</em> system's architecture, never as theirs.</td></tr>
+      <tr><td>U3</td><td>Whether execution is routed through colocated cloud hosts</td><td>Not implemented. The bridge agent dials out; deployment topology is the operator's choice.</td></tr>
+      <tr><td>U4</td><td>What Balance Multiplier does when master and slave contract sizes differ (“align contract sizes” is all the docs say)</td><td>Turned into an explicit formula with a switch: <b>Contract Alignment</b>, default-on for the balance multipliers, off otherwise, and a warning log when sizes differ with it off.</td></tr>
+      <tr><td>U5</td><td>Whether a master partial close is mirrored proportionally, FIFO, or unsupported</td><td>Implemented <b>proportionally</b> — and flagged as an assumption in <code>README.md</code>, because a proportional close is the one that preserves the follower's risk ratio.</td></tr>
+      <tr><td>U6</td><td>The exact “Hold / Expiry” semantics of Copy Expiry Time across platforms</td><td>Modelled as an absolute UTC expiry carried to the slave; a platform that cannot express it reports the capability flag and the command is refused rather than silently dropped.</td></tr>
+      <tr><td>U7</td><td>Whether they reconcile slave state after a disconnect</td><td>Not documented ⇒ implemented as <b>off by default</b>. Reconnect schedules a reconcile that <em>logs</em> <code>RECONNECT_MISMATCH</code>; actually reopening a missing position (<code>reopenMissing</code>) is opt-in, because a delayed broker view would otherwise get a second position — worse than a missing one.</td></tr>
+      <tr><td>U8</td><td>Subscription/payment internals: proration, refunds, invoices</td><td>Plans and entitlements exist as data and are enforced; there is no payment provider. Stated plainly in <code>docs/MANUAL-STEPS.md</code> § 8.</td></tr>
+      <tr><td>U9</td><td>Mobile apps, community Rooms, the Analyzer's exact metric definitions</td><td>Out of scope; the analytics module covers the documented metric list (F59–F60) only.</td></tr>
+      <tr><td>U10</td><td>Their security internals — 2FA, session policy, encryption</td><td>Not documented ⇒ standard hardening applied and written up in <code>docs/SECURITY.md</code>: scrypt, rotating refresh tokens, TOTP, AES-256-GCM, single-use WS tickets, rate limits.</td></tr>
+      <tr><td>U11</td><td>Their notification-template rendering engine</td><td>Reproduced the documented <code>%TOKEN%</code> substitution behaviour and nothing beyond it.</td></tr>
+    </tbody>
+  </table>
+  <div class="box warn">
+    <p><b>U4 and U7 are the two that shaped code the most.</b> Both were cases where the “obvious”
+      answer is dangerous: assuming a contract-size convention would misprice every gold copy, and
+      auto-reopening a missing position turns a delayed broker response into a doubled position.
+      Writing the unknown down first is what made the safe default visible.</p>
+  </div>
+  <h3>Scope, stated as a boundary</h3>
+  <p>
+    In scope: the forex/CFD copier (F1–F9 except infra provisioning, F10's MT4/MT5 path plus a
+    generic adapter seam, F14–F66 with F63's entitlement enforcement but no gateway). Explicitly
+    out: futures platforms (F11), cloud/VPS provisioning (F9), mobile (F13), Rooms, and any payment
+    integration (U8). Report-style flags like F12 (“100% cloud, no EA/VPS install for the user”) are
+    <em>observed but not reproduced</em> — this build ships a cloud API plus a small agent on the
+    user's machine, and §6.6 explains why that is the honest architecture rather than a shortcut.
+  </p>
+</section>
+
+<section id="shape">
+  <h2>5. Shape of the build</h2>
+  <pre class="flow"><code>                        ┌──────────────────────────────────────────────┐
+   browser ────────────▶│  apps/web   Next.js App Router + BFF proxy   │
+                        │  httpOnly cookies; no token ever in JS        │
+                        └───────────────┬──────────────────────────────┘
+                                        │ /api/*  (rewritten server-side)
+                        ┌───────────────▼──────────────────────────────┐
+   bridge agent ───────▶│  apps/api   Fastify                          │
+   /bridge/agent        │   ├── HTTP routes        /api/v1/...         │
+   (WebSocket)          │   ├── copy engine        (in-process default) │
+                        │   └── /api/v1/ws         dashboard channel    │
+                        └───────┬────────────────────────┬──────────────┘
+                                │                        │
+                        ┌───────▼───────┐        ┌───────▼──────────────┐
+                        │  PostgreSQL   │        │  BrokerConnector     │
+                        │  the only     │        │   mock / bridge /    │
+                        │  shared state │        │   remote             │
+                        └───────────────┘        └──────────────────────┘</code></pre>
+  <table>
+    <thead><tr><th>Package</th><th>Depends on</th><th>Contains</th></tr></thead>
+    <tbody>
+      <tr><td><code>packages/contracts</code></td><td>zod</td><td>HTTP DTOs, realtime frames, platform enums, the error-code taxonomy</td></tr>
+      <tr><td><code>packages/domain</code></td><td>contracts</td><td>pips, lots, sizing, symbol matching, filters, market hours, the copy planner, equity rules, <code>Result</code></td></tr>
+      <tr><td><code>packages/db</code></td><td>contracts, domain</td><td>Drizzle schema, two SQL migrations, repositories</td></tr>
+      <tr><td><code>packages/broker</code></td><td>contracts, domain</td><td>the connector interface and its three implementations</td></tr>
+      <tr><td><code>apps/api</code></td><td>all of the above</td><td>routes, engine, worker loops, the two WebSocket hubs</td></tr>
+      <tr><td><code>apps/bridge-agent</code></td><td>broker, contracts, domain</td><td>terminal-side agent: cloud socket + the local endpoint the EA polls</td></tr>
+      <tr><td><code>apps/web</code></td><td>contracts</td><td>the dashboard, 14 pages</td></tr>
+      <tr><td><code>integrations/mt5</code></td><td>—</td><td><code>.mq5</code> Expert Advisor skeleton + its JSON helper (not compiled)</td></tr>
+    </tbody>
+  </table>
+  <p>
+    The copy path, end to end — this is the diagram to hold in your head when reading §6:
+  </p>
+  <pre class="flow"><code>agent / mock ──whole position set──▶ AgentHub ──▶ CopyPipeline.onPositions
+                                                      │
+                                            diffPosition(previous, current)
+                                                      │  opens / partials / closes
+                                                      ▼
+                                            planOpen / planClose          ← pure, no I/O
+                                                      │  decision + per-rule trace
+                                                      ▼
+                                  trade_links (state) + copy_commands (outbox)   ← commit point
+                                                      │
+                                            CommandDispatcher.tick()
+                                                      │  claim → execute → write back
+                                                      ▼
+                                            BrokerConnector ──▶ terminal
+                                                      │
+                                            execution_logs + dashboard WS</code></pre>
+</section>
+
+<section id="decisions">
+  <h2>6. Decisions and rationale</h2>
+  <p>
+    One card per decision: what was chosen, <b>why</b>, and what was rejected. The rejected option
+    is usually the one that reveals the constraint.
+  </p>
+
+  <h3 id="d-method">6.1 Method &amp; contracts</h3>
+  <div class="cards">
+    <div class="card">
+      <h4>Zod schemas in a shared <code>contracts</code> package are the single source of truth</h4>
+      <p class="why">The same shapes ride HTTP, the WebSocket frames and the browser, and they must be validated on <em>arrival</em>, not only on send. One definition means the API cannot accept a field the dashboard cannot send, or vice versa. The route handlers, the BFF and the client all import them.</p>
+      <p class="rej"><b>Rejected:</b> per-app type definitions (three chances to disagree), and OpenAPI-first (a codegen step plus a spec that drifts the moment someone edits a route).</p>
+      <span class="ref">packages/contracts/src/{dto,trade,realtime,errors,settings}.ts</span>
+    </div>
+    <div class="card">
+      <h4>A pure domain package that performs no I/O</h4>
+      <p class="why">Every interesting decision — size this trade, is the spread acceptable, is the market open, is this symbol mapped — is a function of values passed in. The planner receives clocks, symbol specs, quotes and settings as arguments. That is why 45 planner tests can call it with hand-built snapshots and no database, on a weekend, in milliseconds.</p>
+      <p class="rej"><b>Rejected:</b> domain objects that fetch what they need. Convenient for a week, untestable forever after.</p>
+      <span class="ref">packages/domain/src/{copy-planner,risk,lots,pips,symbols,market,equity}.ts</span>
+    </div>
+    <div class="card">
+      <h4><code>Result&lt;T, E&gt;</code> at the edges, exceptions for faults</h4>
+      <p class="why">The copy path is a decision pipeline where almost every step can legitimately decline: the spread is wide, the market is shut, the volume is below the broker minimum, the symbol moved. Those are <em>data</em> — they get a code, a log row and a trace. Exceptions are reserved for programming faults and infrastructure failure.</p>
+      <p class="rej"><b>Rejected:</b> throwing on a skip. It makes the common case look exceptional and tempts a blanket <code>catch</code> that swallows a real bug.</p>
+      <span class="ref">packages/domain/src/result.ts</span>
+    </div>
+  </div>
+
+  <h3 id="d-money">6.2 Forex correctness</h3>
+  <div class="cards">
+    <div class="card">
+      <h4><code>decimal.js</code> for money and prices; never binary floating point</h4>
+      <p class="why">Position sizes are floored to a broker step and then validated against min/max. <code>0.1 + 0.2 !== 0.3</code> in binary floating point, and a volume that computes as <code>0.009999999</code> floors to <em>zero</em> — a silently dropped trade. Decimal arithmetic keeps the store honest; conversion to <code>number</code> happens only at the broker boundary.</p>
+      <p class="rej"><b>Rejected:</b> integer minor units. Prices are not the only quantity — volumes, lot steps, pip sizes and contract sizes all have different scales, and a single integer scale does not fit them.</p>
+      <span class="ref">packages/domain/src/{lots,risk,pips}.ts</span>
+    </div>
+    <div class="card">
+      <h4>A pip is derived from the symbol, not hard-coded</h4>
+      <p class="why">The naive rule — “a pip is 0.0001” — is wrong for JPY pairs (0.01), for 3-digit metals, for indices and for crypto. The rule implemented is the <em>convention</em>: on a 5-digit or 3-digit quote a pip is ten points, otherwise it is one point. This one function is why stops, spread gates and pip-based refiners are correct across the instrument list instead of only on EURUSD.</p>
+      <p class="rej"><b>Rejected:</b> a <code>pipSize</code> column in a lookup table. A table is a lie the first time someone adds a symbol.</p>
+      <span class="ref">packages/domain/src/pips.ts (28 symbol tests)</span>
+    </div>
+    <div class="card">
+      <h4>Volume: floor to step, clamp, and refuse to round up</h4>
+      <p class="why">Requested volume is floored to <code>lotStep</code> and clamped to <code>minLot</code>/<code>maxLot</code>, and a clamp writes a warning onto the log row. A volume that would floor to zero is skipped as <code>VOLUME_BELOW_MIN</code> — never rounded up, because rounding 0.004 lots up to the 0.01 minimum opens a position the user did not ask for.</p>
+      <p class="rej"><b>Rejected:</b> clamping sub-minimum volumes up to the minimum. It is the friendlier-looking choice and it is the one that quietly increases risk.</p>
+      <span class="ref">packages/domain/src/lots.ts</span>
+    </div>
+    <div class="card">
+      <h4>Five risk types, as explicit formulas, each returning a trace</h4>
+      <p class="why">Fixed Lot, Lot Multiplier, Balance Multiplier, Fixed Balance Multiplier, Fixed % Risk — the five the reference documents — plus Contract Alignment and the Lot Refiner as modifiers. Every computation returns the steps it took, which is what lets the dashboard explain a size rather than just display it.</p>
+      <p class="rej"><b>Rejected:</b> a single generic “sizing” function with flags. It becomes impossible to say which formula produced which number.</p>
+      <span class="ref">packages/domain/src/risk.ts — formulas in §8</span>
+    </div>
+    <div class="card">
+      <h4>Contract Alignment default-on for balance multipliers, off otherwise</h4>
+      <p class="why">The docs say “align contract sizes” without saying when. A Balance Multiplier copy of 1.0 lots of 100-oz gold onto a 1-oz CFD would be 100× the exposure — so for the balance-scaled types, alignment is on. Plain Lot Multiplier is a deliberate 1:1 lot ratio, so aligning there would break the user's stated intent.</p>
+      <p class="rej"><b>Rejected:</b> always-on (changes what Lot Multiplier means) and always-off with a warning only (leaves the dangerous case as the default).</p>
+      <span class="ref">packages/domain/src/risk.ts — see U4</span>
+    </div>
+    <div class="card">
+      <h4>Partial closes mirrored proportionally</h4>
+      <p class="why">The docs do not say (U5). Proportional is the choice that preserves the follower's risk ratio and is reversible by the user; FIFO is arbitrary from the follower's point of view.</p>
+      <p class="rej"><b>Rejected:</b> refusing partial closes, which would make a master's partial exit invisible to followers — a real risk difference.</p>
+      <span class="ref">packages/domain/src/copy-planner.ts, README (assumption)</span>
+    </div>
+    <div class="card">
+      <h4>Slippage tolerance in pips, converted to points at the terminal</h4>
+      <p class="why">Users and the reference product speak in pips; MT5's <code>deviation</code> is in points. One conversion, using the symbol's own pip size, in one place — so a 1.5-pip tolerance is 15 points on EURUSD and 15 on a 3-digit JPY quote (both 10 points per pip), not a fixed 15 everywhere.</p>
+      <p class="rej"><b>Rejected:</b> exposing points to the user. It is the unit that causes the mistakes.</p>
+      <span class="ref">integrations/mt5/TradeCopierBridge.mq5 · TcDeviation()</span>
+    </div>
+  </div>
+
+  <h3 id="d-data">6.3 Data and durability</h3>
+  <div class="cards">
+    <div class="card">
+      <h4>PostgreSQL + Drizzle, with migrations generated as explicit SQL and never auto-applied</h4>
+      <p class="why">The mapping is type-safe in TypeScript while the actual change is a reviewable <code>.sql</code> file. That split is the point: applying a schema change to somebody's database as a side effect of <code>pnpm install</code> is how data gets lost, so <code>pnpm db:migrate</code> is a deliberate release step.</p>
+      <p class="rej"><b>Rejected:</b> a lighter embedded store (the outbox needs <code>SKIP LOCKED</code>, which is a PostgreSQL gift) and an ORM that hides the DDL (nobody reviews what they cannot read).</p>
+      <span class="ref">packages/db/drizzle/0000_luxuriant_pixie.sql, 0001_amazing_the_renegades.sql</span>
+    </div>
+    <div class="card">
+      <h4><code>copy_commands</code> is a durable outbox with a claim-based lease</h4>
+      <p class="why">A decision becomes durable the instant it is inserted, so a crash between deciding and executing loses nothing. Claiming is one atomic statement using <code>SELECT … FOR UPDATE SKIP LOCKED … RETURNING</code>, which is what lets several workers share the table with no lock manager and no Redis. Commands are serialised per account (position order matters) and parallel across accounts.</p>
+      <p class="rej"><b>Rejected:</b> an in-process queue (loses decided-but-unexecuted work on restart) and Redis (a second stateful dependency for semantics PostgreSQL already has).</p>
+      <span class="ref">packages/db/src/repositories/engine.ts · docs/ARCHITECTURE.md</span>
+    </div>
+    <div class="card">
+      <h4>Periodic work lives in a <code>jobs</code> table, claimed the same way</h4>
+      <p class="why">Daily resets, pruning and reconciliation must happen exactly once across API replicas without a leader election. Claiming job rows with the same lease primitive as commands gives that for free.</p>
+      <p class="rej"><b>Rejected:</b> a cron sidecar (a second scheduler that can drift from the app) and <code>setInterval</code> in every replica (N times the work).</p>
+      <span class="ref">apps/api/src/engine/{jobs,maintenance}.ts</span>
+    </div>
+    <div class="card">
+      <h4>Audit verbs are a <code>text</code> column typed by a TS union, not a Postgres enum</h4>
+      <p class="why">This was originally a pg enum, and it was wrong in a way that had no symptom at compile time (see defect 3). A union type gives the same editor safety while letting the vocabulary grow in a code change rather than requiring a migration first.</p>
+      <p class="rej"><b>Rejected:</b> keeping the enum and adding a cast at each call site — which is exactly the thing that hid the bug.</p>
+      <span class="ref">packages/db/src/schema/enums.ts · migration 0001</span>
+    </div>
+    <div class="card">
+      <h4>Raw SQL results are never trusted to be camelCase or <code>Date</code>-typed</h4>
+      <p class="why">Drizzle's <code>db.execute()</code> returns the raw driver result: snake_case column names, <code>timestamptz</code> as <em>text</em> (<code>2026-10-19 05:41:48.243+00</code>, which <code>new Date()</code> reads as local time). Every raw-claim path has an explicit mapper, plus shared <code>toTimestamp</code> helpers.</p>
+      <p class="rej"><b>Rejected:</b> a global <code>casing</code> transform and SQL aliasing — both hide which values came from where, and the timestamp issue survives either way.</p>
+      <span class="ref">packages/db/src/repositories/values.ts · see defect 2</span>
+    </div>
+  </div>
+
+  <h3 id="d-engine">6.4 The engine</h3>
+  <div class="cards">
+    <div class="card">
+      <h4>Two phases: decide (and persist), then execute from the outbox</h4>
+      <p class="why">The decision and the broker call are separated by a durability boundary, so a broker outage pauses execution instead of losing intent, and the retry policy lives in one place instead of inside every call site.</p>
+      <p class="rej"><b>Rejected:</b> calling the broker inline from the ingest path — a slow broker then blocks the ingest of every other account.</p>
+      <span class="ref">apps/api/src/engine/{copy-pipeline,dispatcher}.ts</span>
+    </div>
+    <div class="card">
+      <h4>The engine's model of the slave is what the broker <em>filled</em>, not what was asked</h4>
+      <p class="why">On success the fill is written back onto the link (<code>filledVolume</code>, <code>filledPrice</code>, <code>slaveTicket</code>), and every later decision reads that. If the broker partially filled, the next close is proportional to reality rather than to the request.</p>
+      <p class="rej"><b>Rejected:</b> trusting the request. It diverges from the account on the first partial fill and never recovers.</p>
+      <span class="ref">apps/api/src/engine/dispatcher.ts</span>
+    </div>
+    <div class="card">
+      <h4>Every rule decision is stored as a trace on the log row</h4>
+      <p class="why">Each step records <code>pass</code>/<code>adjust</code>/<code>skip</code> with a detail string, so the dashboard can answer “why was this trade not copied, and by how much was that size adjusted” without anyone reading code. <code>pnpm sim --verbose</code> prints the same trace, which makes the copy path reviewable by a non-author.</p>
+      <p class="rej"><b>Rejected:</b> a boolean outcome plus a code. It cannot express “copied, but clamped from 0.05 to 0.01 lots”.</p>
+      <span class="ref">packages/domain/src/copy-planner.ts · execution_logs</span>
+    </div>
+    <div class="card">
+      <h4>Retries are bounded by <em>time</em>, not by attempt count</h4>
+      <p class="why">The reference says a copier retries an out-of-hours trade for up to 15 minutes (<code>COPY_RETRY_WINDOW_MS</code>), with exponential backoff capped at <code>COPY_RETRY_MAX_MS</code>. When the window closes, the command is dead-lettered with an actionable code and a notification — because “still trying” and “gave up” must be distinguishable.</p>
+      <p class="rej"><b>Rejected:</b> N attempts. With a variable poll interval, a count means an unbounded wall-clock delay in the worst case.</p>
+      <span class="ref">apps/api/src/engine/dispatcher.ts · oracles §3</span>
+    </div>
+    <div class="card">
+      <h4>Idempotency by deterministic <code>requestId</code> and delta-based link state</h4>
+      <p class="why">Re-delivering the same position snapshot must be a no-op, because a reconnecting agent will. The link is keyed by <code>(master trade, follower)</code>, opens are keyed on disappearances and changes rather than on the stream, and every command carries a deterministic id — so a duplicated poll cannot produce a second position.</p>
+      <p class="rej"><b>Rejected:</b> trusting a sequence number from the agent. A reconnecting agent restarts its counters.</p>
+      <span class="ref">packages/domain/src/positions.ts · dispatcher</span>
+    </div>
+    <div class="card">
+      <h4>Reconciliation is scheduled on reconnect, and reopening is opt-in</h4>
+      <p class="why">When the socket reopens the agent has not pushed state yet, so the reconcile is deferred (~5 s) rather than run inline. It logs <code>RECONNECT_MISMATCH</code> for every divergence; actually reopening a position the slave lost is off by default (U7).</p>
+      <p class="rej"><b>Rejected:</b> reconciling inline on connect (races the first snapshot) and auto-healing (a delayed broker view becomes a doubled position).</p>
+      <span class="ref">apps/api/src/engine/{agents,reconciler}.ts</span>
+    </div>
+    <div class="card">
+      <h4>Equity protection is its own monitor with explicitly scoped actions</h4>
+      <p class="why">Drawdown and daily-loss rules are evaluated on their own cadence and can <code>notify</code>, <code>disable_copier</code>, <code>close_copied_trades</code> (an explicit ticket list resolved from the engine's links) or <code>close_all_trades</code>. Each firing writes an event row, a log line and a notification.</p>
+      <p class="rej"><b>Rejected:</b> putting the checks inline in the copy path. A protection rule must keep working when nothing is being copied.</p>
+      <span class="ref">apps/api/src/engine/equity-monitor.ts · see defect 6</span>
+    </div>
+  </div>
+
+  <h3 id="d-auth">6.5 Auth and secrets</h3>
+  <div class="cards">
+    <div class="card">
+      <h4>JWT access tokens plus rotating refresh tokens hashed in the database</h4>
+      <p class="why">Access tokens stay stateless and short (15 min default); the refresh token is the stateful half, stored only as a SHA-256 hash, rotated on every use. Presenting an already-rotated token revokes the whole family — two holders of one refresh token means one is an attacker, so both sessions die.</p>
+      <p class="rej"><b>Rejected:</b> long-lived access tokens (no revocation story) and server-side sessions for everything (a DB round trip on every request).</p>
+      <span class="ref">apps/api/src/modules/auth.routes.ts · docs/SECURITY.md</span>
+    </div>
+    <div class="card">
+      <h4>scrypt and TOTP from <code>node:crypto</code>, not third-party crypto</h4>
+      <p class="why">The auth path has no third-party crypto dependency: scrypt (<code>N=2^15, r=8, p=1</code>, self-describing hash format so parameters can be raised later) and RFC 6238 TOTP implemented directly. Less supply chain in the one place where a compromise is total.</p>
+      <p class="rej"><b>Rejected:</b> pulling a TOTP library for ~60 lines of HMAC, and bcrypt/argon2 native modules for a two-second deploy problem.</p>
+      <span class="ref">apps/api/src/lib/{passwords,totp}.ts — 29 tests</span>
+    </div>
+    <div class="card">
+      <h4>AES-256-GCM with self-describing ciphertext; credentials never leave the server</h4>
+      <p class="why">Broker passwords and agent tokens are encrypted with a key that only exists in the environment. Ciphertext is <code>v1.&lt;iv&gt;.&lt;tag&gt;.&lt;payload&gt;</code>, a fresh nonce per encryption, and GCM detects tampering instead of returning garbage. A wrong key returns <code>null</code> rather than throwing, so a misconfigured deployment fails loudly. Nothing is ever returned — not masked, not fingerprinted.</p>
+      <p class="rej"><b>Rejected:</b> returning a masked value “for the UI”. The UI never needs it, so it is only ever a leak surface.</p>
+      <span class="ref">apps/api/src/lib/crypto.ts — 18 security tests</span>
+    </div>
+    <div class="card">
+      <h4>The dashboard's WebSocket uses a single-use ticket, never a token in the URL</h4>
+      <p class="why">A browser WebSocket handshake cannot carry a custom header, and a token in a query string lands in proxy logs and browser history. Instead the dashboard gets a 60-second single-use ticket over authenticated HTTPS and opens <code>/api/v1/ws?ticket=…</code>.</p>
+      <p class="rej"><b>Rejected:</b> the access token in the query string, and cookies on the WS handshake (unreliable across browsers and proxies).</p>
+      <span class="ref">apps/api/src/lib/tickets.ts · docs/API.md § Realtime</span>
+    </div>
+    <div class="card">
+      <h4>One access token, two transports: <code>tc_access</code> cookie <em>or</em> <code>Authorization: Bearer</code></h4>
+      <p class="why">The dashboard is a BFF with httpOnly cookies (no token in JS, no XSS exfiltration path); scripts, the agent and <code>curl</code> use a bearer header. One code path validates both, so tooling and browser cannot drift apart.</p>
+      <p class="rej"><b>Rejected:</b> localStorage tokens (XSS-exfiltratable) and a separate API key scheme for tooling (a second auth system to keep correct).</p>
+      <span class="ref">apps/api/src/plugins/auth.ts</span>
+    </div>
+  </div>
+
+  <h3 id="d-bridge">6.6 The broker boundary</h3>
+  <div class="cards">
+    <div class="card">
+      <h4>One <code>BrokerConnector</code> interface, three implementations</h4>
+      <p class="why"><code>connect · getAccount · getPositions · getSymbols · placeMarketOrder · placePendingOrder · modifyPosition · closePosition · closeAll</code>, plus an optional <code>subscribe</code>. A mock, a bridge agent and a remote RPC connector are interchangeable, which is what makes the whole copy path testable without a broker and makes a cTrader adapter a new file rather than a rewrite.</p>
+      <p class="rej"><b>Rejected:</b> a thin per-platform abstraction at the call sites. Broker quirks then leak into the engine.</p>
+      <span class="ref">packages/broker/src/types.ts</span>
+    </div>
+    <div class="card">
+      <h4>MT4/MT5 are served by a polling Expert Advisor, and that is stated as a limitation</h4>
+      <p class="why">MetaTrader has no supported server-side trading API. The honest options are a compiled DLL injected into the terminal, a screen-clicking robot, or an EA. The EA is chosen: no native code, works the same on MT4 and MT5, and auditable by the person whose money is at stake. The cost — minimum latency is the poll interval plus broker execution — is written down rather than glossed over (U1).</p>
+      <p class="rej"><b>Rejected:</b> claiming the vendor's 20–30 ms, and shipping a DLL. The first is untrue; the second is unauditable by the user.</p>
+      <span class="ref">docs/BRIDGE.md · integrations/mt5/</span>
+    </div>
+    <div class="card">
+      <h4>Mock accounts are mirrored into the hub's cache, so mocks and agents share one code path</h4>
+      <p class="why">This was a bug fix that became a design rule (defect 4). If a mock only feeds the engine's <em>position</em> view while the real path feeds a <em>quote</em> view, then the tests exercise a different decision path than production. Mirroring mock events into the same <code>AccountCache</code> means quote-age and spread checks behave identically — including, correctly, reporting <code>STALE_QUOTE</code> in a long mock session, because mock quotes are one-shot snapshots.</p>
+      <p class="rej"><b>Rejected:</b> exempting mocks from quote checks. The exemption is exactly where a broken check would hide.</p>
+      <span class="ref">apps/api/src/engine/{agents,connectors}.ts</span>
+    </div>
+    <div class="card">
+      <h4>Mock tickets are unique per connector instance</h4>
+      <p class="why">Links are reconciled by <code>(account, ticket)</code> and closed trades are unique on <code>(account_id, ticket)</code>. A fixed mock ticket sequence meant a second simulation run reused tickets from the first, mis-attributing P/L and colliding on insert (defect 5). Prices stay seed-deterministic; only the ticket base is derived from wall-clock plus a hash of the account id.</p>
+      <p class="rej"><b>Rejected:</b> clearing history before every mock run only. That papers over the collision instead of making tickets what they are in reality — unique.</p>
+      <span class="ref">packages/broker/src/mock-connector.ts · tools/simulate-copy.ts</span>
+    </div>
+    <div class="card">
+      <h4><code>close_all</code> is scoped by an explicit ticket list, resolved by the engine</h4>
+      <p class="why">“Close only the positions the copier opened” requires a request-id → ticket map, and that map lives in the engine's outbox on the server — the agent cannot resolve it. The first implementation sent request ids and the agent (correctly) refused, which meant Equity Protection's <em>close copied trades</em> could never work. Now the engine resolves its links and sends broker tickets (defect 6).</p>
+      <p class="rej"><b>Rejected:</b> widening the command to “close everything” on the agent, which would have liquidated the user's manual trades — a far worse failure than a no-op.</p>
+      <span class="ref">packages/contracts/src/realtime.ts · apps/bridge-agent/src/ea-link.ts</span>
+    </div>
+  </div>
+
+  <h3 id="d-build">6.7 Monorepo, build and web</h3>
+  <div class="cards">
+    <div class="card">
+      <h4>pnpm workspaces; packages consumed as TypeScript source</h4>
+      <p class="why"><code>exports</code> points at <code>src/index.ts</code>, so there is no “did you rebuild the package?” failure mode while developing. <code>apps/api</code> and <code>apps/bridge-agent</code> are bundled with tsup for deployment; <code>apps/web</code> uses <code>transpilePackages</code>.</p>
+      <p class="rej"><b>Rejected:</b> a build-order graph between packages. It buys a marginally faster cold build and costs a daily footgun.</p>
+      <span class="ref">pnpm-workspace.yaml · packages/*/package.json</span>
+    </div>
+    <div class="card">
+      <h4>ESM with explicit <code>.js</code> extensions; the web app sets a webpack <code>extensionAlias</code></h4>
+      <p class="why">Node ESM requires the <code>.js</code> extension even for TypeScript sources; Next's webpack needs to be told that <code>./x.js</code> means <code>./x.ts</code> when resolving inside a package. Stated because it is the kind of config that looks gratuitous until the first import fails.</p>
+      <p class="rej"><b>Rejected:</b> CJS. Everything here is modern and the ESM tax is one config line per consumer.</p>
+      <span class="ref">apps/web/next.config.ts</span>
+    </div>
+    <div class="card">
+      <h4>The dashboard talks to the API through a Next.js BFF proxy</h4>
+      <p class="why">Tokens live in httpOnly cookies set by the server; the browser never holds one. It also means CORS is not part of the deployment story, and the WS ticket is issued server-side.</p>
+      <p class="rej"><b>Rejected:</b> browser-direct API calls with tokens in JS storage.</p>
+      <span class="ref">apps/web/lib/api.ts · app/api/*/route.ts</span>
+    </div>
+    <div class="card">
+      <h4>shadcn/ui (new-york) + tweakcn <code>modern-minimal</code>, and hand-rolled SVG charts</h4>
+      <p class="why">Components are copied in, so they are ours to edit and there is no runtime dependency. The tweakcn token set is translated into Tailwind v4 custom properties so component source stays untouched. Charts are small SVGs — an equity curve and a P/L bar chart are not worth a charting dependency, a bundle several times the dashboard, and a licence review.</p>
+      <p class="rej"><b>Rejected:</b> a component library with its own theming system, and a chart library for two chart shapes.</p>
+      <span class="ref">apps/web/components/ui/* · apps/web/app/globals.css</span>
+    </div>
+    <div class="card">
+      <h4>Plain CSS font stacks instead of <code>next/font</code></h4>
+      <p class="why">A build that reaches out to Google Fonts fails offline, on a locked-down network, and in CI. Two lines of CSS avoid all three.</p>
+      <p class="rej"><b>Rejected:</b> self-hosting the font files for a marginal fidelity gain on a dashboard.</p>
+      <span class="ref">apps/web/app/globals.css</span>
+    </div>
+  </div>
+
+  <h3 id="d-test">6.8 Testing</h3>
+  <div class="cards">
+    <div class="card">
+      <h4>Integration tests run against real PostgreSQL, and refuse to run anywhere else</h4>
+      <p class="why">The outbox's claim statement, its leases and the migration ledger are the parts most likely to be wrong, and none of them exist in a mock. The suite skips entirely when <code>TEST_DATABASE_URL</code> is unset and the harness refuses any database whose name does not end in <code>_test</code>.</p>
+      <p class="rej"><b>Rejected:</b> SQLite in-memory. It would test a different database than the one in production.</p>
+      <span class="ref">apps/api/test/helpers/database.ts</span>
+    </div>
+    <div class="card">
+      <h4>Integration fixtures use crypto (BTCUSD), and the API project runs serially</h4>
+      <p class="why">A forex fixture would make the suite fail on a weekend or across the 21:00–22:00 UTC rollover — a test that fails for calendar reasons teaches people to ignore failures. And because each DB suite rebuilds the schema, the suites run in a single fork; parallel files would race on the same database.</p>
+      <p class="rej"><b>Rejected:</b> a shared migrated database per run. The reset cost is small and correctness is worth it.</p>
+      <span class="ref">vitest.workspace.ts · apps/api/test/copy-engine.test.ts</span>
+    </div>
+    <div class="card">
+      <h4>Table-driven domain tests keyed to the oracles</h4>
+      <p class="why">128 domain tests, each traceable to a documented rule or a formula. When the reference docs are the spec, a test name should say which sentence it is pinning — otherwise the suite becomes a regression fence around whatever the code already does.</p>
+      <p class="rej"><b>Rejected:</b> snapshot tests for sizing. They would freeze a wrong formula in amber.</p>
+      <span class="ref">packages/domain/test/*</span>
+    </div>
+  </div>
+</section>
+
+<section id="defects">
+  <h2>7. Six defects, found by running it</h2>
+  <p>
+    This section is the most useful one. Four of these six lived in code that compiled, type-checked
+    and read as correct. They were found by <b>executing</b> the thing against a live database, not
+    by reviewing it. That is the argument for running what you build before you describe it as done.
+  </p>
+
+  <div class="cards">
+    <div class="card">
+      <h4>1 · The API never booted: <code>@fastify/cookie</code> was registered twice</h4>
+      <p class="why"><b>Symptom:</b> <code>The decorator 'serializeCookie' has already been added</code> at startup. The plugin was registered once in <code>server.ts</code> and again inside <code>authPlugin</code>. Worse: <code>buildServer()</code> had therefore <em>never actually run</em> in any test, so a green type-check was covering for a server that could not start.</p>
+      <p class="why"><b>Fix:</b> one registration in <code>server.ts</code>; <code>authPlugin</code> declares <code>dependencies: ['@fastify/cookie']</code> instead, which is Fastify's proper way to express the ordering need. A 401 in the auth-flow tests is what sent me looking.</p>
+      <span class="ref">ff8411d · apps/api/src/{server.ts,plugins/auth.ts}</span>
+    </div>
+    <div class="card">
+      <h4>2 · Raw SQL claim rows came back snake_case and text-typed</h4>
+      <p class="why"><b>Symptom:</b> <code>Cannot read properties of undefined (reading 'getTime')</code> on the retry path. Drizzle's <code>db.execute()</code> returns the driver's raw result: <code>account_id</code> not <code>accountId</code>, and <code>timestamptz</code> as the string <code>2026-10-19 05:41:48.243+00</code>, which <code>new Date()</code> parses as <em>local</em> time — a silent off-by-timezone bug waiting behind the crash.</p>
+      <p class="why"><b>Fix:</b> an explicit mapper per raw path (<code>toClaimedCommand</code>, <code>toClaimedJob</code>, <code>toClaimedNotification</code>) plus shared <code>toTimestamp</code>/<code>toTimestampOrNull</code> helpers. The rule now: no raw result is ever trusted to be camelCase or date-typed.</p>
+      <span class="ref">e6fae45 · packages/db/src/repositories/{engine,values}.ts</span>
+    </div>
+    <div class="card">
+      <h4>3 · Every audit insert failed at runtime, hidden by an <code>as never</code> cast</h4>
+      <p class="why"><b>Symptom:</b> none visible from the type-checker. The <code>audit_logs.action</code> column was a pg enum with values that had <em>never been reconciled</em> with the call sites, and every caller passed a dotted verb like <code>user.login</code>. An <code>as never</code> cast silenced the compiler, so nothing failed until an insert actually ran — at which point every audit write raised a Postgres enum error. The audit log was, in effect, empty.</p>
+      <p class="why"><b>Fix:</b> make the column <code>text</code>, type it in TypeScript as an <code>AuditAction</code> union, and drop the enum in migration <code>0001</code>. Lesson recorded: a cast that suppresses a compiler error on a value crossing a boundary is a bug you have agreed to find in production.</p>
+      <span class="ref">e6fae45 · packages/db/src/schema/enums.ts · drizzle/0001</span>
+    </div>
+    <div class="card">
+      <h4>4 · Mock accounts were unpriced, so every copy skipped as <code>STALE_QUOTE</code></h4>
+      <p class="why"><b>Symptom:</b> the simulator produced no copies at all, each one logged as <code>STALE_QUOTE</code>. The engine's quote-age and spread checks run against the hub's account cache; mock positions reached the engine, but mock <em>quotes</em> never entered that cache. Type-checked beautifully; did nothing.</p>
+      <p class="why"><b>Fix:</b> <code>createMock</code> mirrors events into the same <code>AccountCache</code> and seeds one quote per symbol, so mocks and real agents take an identical decision path. This turned into a design rule (see §6.6): a test path that differs from production is not a test.<br />
+      <b>Note on what remains “wrong”:</b> mock quotes are one-shot snapshots, so a long-running dev session will correctly start reporting <code>STALE_QUOTE</code>. That is the rule working, not a bug, and it is documented rather than papered over.</p>
+      <span class="ref">dcde35a · apps/api/src/engine/{agents,connectors}.ts</span>
+    </div>
+    <div class="card">
+      <h4>5 · Reused mock tickets mis-attributed P/L and collided on insert</h4>
+      <p class="why"><b>Symptom:</b> a second simulation run reported profit against links whose tickets belonged to the first run. Links are reconciled by <code>(account, ticket)</code> and <code>account_closed_trades</code> is unique on <code>(account_id, ticket)</code>, so reused tickets are both a correctness bug and a constraint violation. Mock tickets started from a fixed constant.</p>
+      <p class="why"><b>Fix:</b> <code>MockConnectorOptions.ticketStart</code>, derived per instance (<code>10^10 + (Date.now() % 10^9)·1000 + hash(accountId) % 1000</code>). Prices stay seed-deterministic so assertions stay stable. Also added <code>clearCopierHistory()</code> so a repeat run is not polluted by links to tickets that no longer exist.</p>
+      <span class="ref">dcde35a · packages/broker/src/mock-connector.ts</span>
+    </div>
+    <div class="card">
+      <h4>6 · Equity Protection's “close copied trades” could never work</h4>
+      <p class="why"><b>Symptom:</b> found while writing the EA and tracing parameter vocabularies. <code>RemoteConnector.closeAll</code> converted the engine's ticket list into <code>originRequestIds</code> and expected the agent to resolve them into broker tickets. It cannot — that map lives in the engine's outbox. Two connectors also used different parameter names for the same call (<code>{reason, magic, tickets}</code> vs <code>{comment, filterMagic, originRequestIds}</code>).</p>
+      <p class="why"><b>Why it mattered:</b> a safety feature that silently does nothing is worse than an absent one, because you rely on it. The earlier hardening (refusing the command rather than widening it to “close everything”) was correct but left the feature dead.</p>
+      <p class="why"><b>Fix:</b> the ticket list now travels as a ticket list — <code>commandParamsSchema</code> carries <code>tickets</code>, the agent forwards it, and the EA closes exactly those positions, with <code>filterMagic</code> and “everything” as the coarser scopes that Equity Protection's <em>close all trades</em> uses.</p>
+      <span class="ref">ba1f1ad · packages/contracts/src/realtime.ts · apps/bridge-agent/src/ea-link.ts</span>
+    </div>
+  </div>
+
+  <div class="box warn">
+    <p><b>The pattern.</b> Three of the six (#1, #3, #4) were invisible to the type-checker and made
+      a feature a no-op rather than an error: a server that could not start, an audit log that
+      recorded nothing, a copier that copied nothing. None of them would have been caught by more
+      tests of the same kind — only by running the path end to end against the real database. The
+      remaining three (#2, #5, #6) were contract mismatches: two sides of a boundary each internally
+      consistent, disagreeing about a name or a unit.</p>
+  </div>
+
+  <details>
+    <summary>One more correction, in the other direction: the code was right and my docs were wrong</summary>
+    <p style="margin-top:10px">
+      When writing the sizing table for <code>docs/MANUAL-STEPS.md</code> I drafted
+      “<code>FIXED_BALANCE_MULTIPLIER</code> = master lots × (fixedMasterBalance ÷ masterBalance) ×
+      balanceMultiplier” and “<code>LOT_MULTIPLIER</code> = master lots × lotMultiplier”. Both were
+      wrong against <code>packages/domain/src/risk.ts</code>: the multipliers are <b>percentages</b>
+      (100 = 1:1), and the fixed-balance variant divides the <em>slave</em> balance by the fixed
+      reference — dividing by the live master balance would defeat the entire point of pinning a
+      reference. So the exercise of writing the formulas down was itself a verification step, and it
+      caught the documentation rather than the code. It also corrected <code>docs/API.md</code>,
+      which had attached the “100% = 1:1” note to the wrong risk type.
+    </p>
+  </details>
+</section>
+
+<section id="sizing">
+  <h2>8. The sizing formulas</h2>
+  <p>
+    Written out because a wrong formula here is a wrong position size, and the reference
+    documentation describes the risk types by name rather than by formula. All five are in
+    <code>packages/domain/src/risk.ts</code>, each returning a trace of the steps it took.
+  </p>
+  <table>
+    <thead><tr><th>Risk type</th><th>Formula</th><th>When you would use it</th></tr></thead>
+    <tbody>
+      <tr><td><code>LOT_MULTIPLIER</code></td><td>master lots × (<code>lotMultiplier</code> ÷ 100)</td><td>Proportional to the master; 100 = 1:1, 50 = half, 150 = 1.5×</td></tr>
+      <tr><td><code>FIXED_LOT</code></td><td><code>fixedLot</code></td><td>Every copy the same size</td></tr>
+      <tr><td><code>BALANCE_MULTIPLIER</code></td><td>master lots × (<code>followerBalance</code> ÷ <code>masterBalance</code>) × (<code>balanceMultiplier</code> ÷ 100)</td><td>Risk stays proportional to capital as the follower's balance moves</td></tr>
+      <tr><td><code>FIXED_BALANCE_MULTIPLIER</code></td><td>master lots × (<code>followerBalance</code> ÷ <code>fixedMasterBalance</code>) × (<code>balanceMultiplier</code> ÷ 100)</td><td>Same, against a pinned reference instead of the master's live balance</td></tr>
+      <tr><td><code>FIXED_PERCENT_RISK</code></td><td>(<code>followerBalance</code> × <code>percentRisk</code> ÷ 100) ÷ (<code>stopLossPips</code> × pip value per lot)</td><td>Risk a fixed share of the follower's balance per trade; needs a stop loss (master's, or <code>fixedStopLossPips</code>)</td></tr>
+    </tbody>
+  </table>
+  <p>Two modifiers sit on top of the result:</p>
+  <ul>
+    <li><b>Contract Alignment</b> multiplies by <code>masterContractSize ÷ slaveContractSize</code>; default-on for the balance-scaled types, off otherwise, with a warning log when sizes differ and it is off. See U4.</li>
+    <li><b>Lot Refiner</b> is an additive offset applied last, and may be negative — which is how a user says “always 0.02 lots less than the master”.</li>
+  </ul>
+  <p>
+    Then the broker's constraints: floor to <code>lotStep</code>, clamp to <code>minLot</code> /
+    <code>maxLot</code> (warning on the log row), and skip as <code>VOLUME_BELOW_MIN</code> if the
+    result floors to zero. Where a pip value cannot be converted into the account currency, the
+    computation is marked <em>degraded</em> and says so rather than assuming a rate.
+  </p>
+</section>
+
+<section id="verified">
+  <h2>9. Verified vs unverified</h2>
+  <p>
+    The distinction the whole document is built on. Left column: things I watched happen. Right
+    column: things that are written and reviewed but were never executed here.
+  </p>
+  <div class="grid2">
+    <div>
+      <h3 style="color:var(--ok)">Verified — I ran this</h3>
+      <table>
+        <thead><tr><th>Claim</th><th>Evidence</th></tr></thead>
+        <tbody>
+          <tr><td>234 tests pass</td><td><code>pnpm test</code> → 13 files, 234 tests, green</td></tr>
+          <tr><td>Domain maths</td><td>128 tests: 45 planner, 31 sizing, 28 symbols, 15 market, 9 equity</td></tr>
+          <tr><td>Wire protocol invariants</td><td>33 tests: 18 schemas, 15 realtime frames</td></tr>
+          <tr><td>API primitives</td><td>73 tests: 18 security, 20 TOTP, 12 env, 9 passwords, 6 copy-engine (DB), 8 auth-flow (DB)</td></tr>
+          <tr><td>End-to-end copy on a live DB</td><td><code>pnpm sim</code>: 3 accounts × 15 symbols seeded, master trade sized per risk model, suffix-mapped, claimed, filled, P/L attributed; clean second run</td></tr>
+          <tr><td>Migrations apply to real PostgreSQL</td><td><code>pnpm db:migrate</code> applied <code>0000</code> and <code>0001</code> against PostgreSQL 16</td></tr>
+          <tr><td>The whole repo type-checks</td><td><code>pnpm exec tsc -b</code> clean across packages, apps and tools</td></tr>
+          <tr><td>The dashboard builds</td><td><code>next build</code> green, 11 static pages prerendered</td></tr>
+          <tr><td>Retry, dead-letter and notification paths</td><td>exercised in <code>copy-engine.test.ts</code> and by the simulator</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <h3 style="color:var(--warn)">Unverified — no way to run it here</h3>
+      <table>
+        <thead><tr><th>Claim</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td>The MT5 EA compiles</td><td>Written against documented MQL5; <b>no MetaEditor available</b>. Expect to fix a compile error or two.</td></tr>
+          <tr><td>Anything against a live broker</td><td>Never done. <code>MockConnector</code> implements the same interface; no real credential has been used.</td></tr>
+          <tr><td>The “20–30 ms” latency claim</td><td>Not reproduced and not claimed. Worst case here is poll interval + broker execution.</td></tr>
+          <tr><td>MT4 support</td><td>Contract is identical, order API is not. No <code>.mq4</code> written.</td></tr>
+          <tr><td>cTrader / Match-Trader / TradeLocker / DXtrade</td><td>Adapter seam only. A new <code>BrokerConnector</code>, not a rewrite — but not written.</td></tr>
+          <tr><td>Payment provider, email, password reset</td><td>Not built. Explicit gaps (U8, <code>docs/SECURITY.md</code>).</td></tr>
+          <tr><td>Penetration testing</td><td>Not done. Controls are unit-tested; the attack surface is not probed.</td></tr>
+          <tr><td>Horizontal scale-out</td><td>Designed for it (leases, <code>jobs</code> table, <code>SKIP LOCKED</code>); never run as more than one worker.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="box bad">
+    <p><b>The single most important boundary in this document:</b> the copy engine, the outbox, the
+      auth stack, the dashboard and the protocol are exercised end to end with a mock connector and
+      a real database. The <em>terminal side</em> — the EA and a real broker — is written, reviewed
+      and unexecuted. Treat the first live copy as a test, at minimum volume, with
+      <b>Equity Protection configured before it runs</b> rather than after.</p>
+  </div>
+</section>
+
+<section id="commits">
+  <h2>10. Commit history</h2>
+  <p>
+    Nineteen commits, each one a coherent unit, in the order the work happened. The first two are
+    ledger and scaffold — deliberately before any implementation, so the spec could not be
+    retro-fitted. The two <code>fix</code> commits after <code>952e329</code> are §7 walking into
+    the room.
+  </p>
+  <pre><code>3bb6528  chore: scaffold pnpm workspace, TypeScript config and env template
+08a0f13  docs: reverse-engineered feature ledger for the reference trade copier
+f85ff25  feat(contracts): single source of truth for wire and domain schemas
+da6746b  feat(domain): pure copy-trading core (maths, mapping, sessions, planner)
+db7c78e  test(domain): 128 unit tests pinning the reverse-engineered behaviour
+18f160c  feat(db): Postgres schema, durable queues and repositories
+9b896b3  feat(broker): one connector interface, three implementations
+04e7f4f  chore(apps): scaffold dashboard and bridge-agent shells
+0379b30  feat(api): Fastify server, copy engine wiring, routes and worker
+ec8b964  feat(agent): bridge agent that links MetaTrader terminals to the copy engine
+952e329  feat(web): Next.js dashboard with BFF auth, live updates and full copier control
+e6fae45  fix(db): read raw claim rows correctly and stop using an enum for audit verbs      ← defect 2, 3
+ff8411d  fix(api): boot the server — register @fastify/cookie once                         ← defect 1
+dcde35a  fix(engine): price mock accounts through the hub cache                            ← defect 4, 5
+77a6af7  test(contracts): schema and realtime protocol invariants
+a2f2b3f  test(api): copy-engine and auth-flow integration tests
+b6aed7d  chore(tools): dev database, seed/reset/simulator and workspace wiring
+ba1f1ad  fix(bridge): scope close_all by ticket list, not by request ids                  ← defect 6
+b30041c  docs: README, architecture, API reference, bridge protocol, manual steps</code></pre>
+</section>
+
+<section id="run">
+  <h2>11. Running it yourself</h2>
+  <p>
+    The fast path is the simulator: a real PostgreSQL, three seeded accounts, a real copy, and no
+    broker. That is the demo I would give first because it shows the whole decision path.
+  </p>
+  <pre><code># 1. dependencies
+pnpm install
+
+# 2. secrets — the API refuses to boot without these two
+cp .env.example .env
+#    JWT_SECRET      $(openssl rand -base64 48)
+#    ENCRYPTION_KEY  $(openssl rand -base64 32)   ← must be exactly 32 bytes
+
+# 3. database (PostgreSQL 16 + a _test database)
+docker compose up -d postgres
+pnpm db:migrate
+pnpm db:seed          # 3 accounts × 15 symbols; demo@trade-copier.dev / demo-password-123
+
+# 4. watch a copy happen, with the decision trace
+pnpm sim -- --verbose
+#     or: pnpm sim -- --symbols=5 --keep-open
+
+# 5. the API and the dashboard
+pnpm dev              # api on :4000, web on :3000
+
+# 6. the whole suite (integration tests skip without a test DB)
+export TEST_DATABASE_URL="$(grep '^TEST_DATABASE_URL=' .env | cut -d= -f2-)"
+pnpm test             # 234 tests</code></pre>
+  <p>Where to read next, depending on what you want:</p>
+  <table>
+    <thead><tr><th>If you want…</th><th>Read</th></tr></thead>
+    <tbody>
+      <tr><td>the product spec as inferred</td><td><code>FEATURES.md</code> — F1–F66, oracles §2, unknowns §3</td></tr>
+      <tr><td>how the system is put together</td><td><code>docs/ARCHITECTURE.md</code> — layers, the copy path, the outbox state machine</td></tr>
+      <tr><td>to call the API</td><td><code>docs/API.md</code> — every route, both WebSocket channels, error codes</td></tr>
+      <tr><td>to put an EA on a terminal</td><td><code>docs/BRIDGE.md</code> + <code>integrations/mt5/README.md</code></td></tr>
+      <tr><td>to go live</td><td><code>docs/MANUAL-STEPS.md</code> — secrets, migrations, a going-live order of operations</td></tr>
+      <tr><td>the security model</td><td><code>docs/SECURITY.md</code> — controls and their known limits</td></tr>
+      <tr><td>the one-minute version</td><td><code>README.md</code></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="next">
+  <h2>12. What I would fix next</h2>
+  <p>In the order I would actually do them, which is roughly “de-risk the unverified side first”:</p>
+  <ol>
+    <li><b>Compile and dry-run the EA against a demo MT5 account.</b> <code>InpDryRun = true</code> exists for exactly this: the engine sees fills against a fake ticket, so the whole loop is observable without a single real order. Nothing else in the repo is as unverified as this file.</li>
+    <li><b>Fix the parameter vocabulary between the connectors.</b> <code>BridgeConnector.closeAll</code> and <code>RemoteConnector.closeAll</code> still take the same argument under two different names (<code>{reason, magic, tickets}</code> vs <code>{comment, filterMagic, tickets}</code>). Defect 6 made them agree on the wire; making them agree in TypeScript would stop the next divergence.</li>
+    <li><b>Replace the in-process rate limiter and ticket store with a shared store</b> before running more than one API replica. The interfaces are already narrow (<code>consume</code>, <code>issue</code>/<code>consume</code>) — this is a drop-in, not a redesign.</li>
+    <li><b>An MT4 <code>.mq4</code> EA.</b> Same polling contract, different order API. It is the most-requested platform in this market and the contract already supports it.</li>
+    <li><b>Email verification and password reset</b>, which need an outbound mail provider and a single-use token store. This is the largest gap between “runs” and “operable by strangers”.</li>
+    <li><b>A second real <code>BrokerConnector</code></b> (cTrader or Match-Trader) to prove the seam is genuinely generic rather than MT5-shaped with an interface in front of it. Interfaces are only proven by a second implementation.</li>
+    <li><b>Alert on <code>queue.depth</code> and <code>queue.oldestQueuedAgeMs</code>.</b> A growing queue means the broker side is slow or an agent is offline, and it will not fix itself. The numbers are already in <code>GET /api/v1/health</code>; nobody is watching them.</li>
+  </ol>
+</section>
+
+<section id="map">
+  <h2>Appendix: file map</h2>
+  <p>Where the things discussed above actually live, so this document stays checkable.</p>
+  <pre><code>FEATURES.md                        the ledger: F1–F66, oracles §2, unknowns §3, scope §4
+README.md                          what it is, the one-minute demo, commands, scope
+docs/ARCHITECTURE.md               layers, copy path, outbox state machine, periodic work
+docs/API.md                        every HTTP route, both WS channels, error taxonomy
+docs/BRIDGE.md                     why a polling EA, the EA HTTP contract, cloud frames
+docs/SECURITY.md                   controls, threat model, known limitations
+docs/MANUAL-STEPS.md               secrets, migrations, EA install, going-live checklist
+docs/walkthrough.html              this document
+
+packages/contracts/src/            dto · trade · realtime · errors · settings · platform
+packages/domain/src/               risk · lots · pips · symbols · market · copy-planner · equity · result
+packages/db/src/                   schema/ · repositories/{engine,accounts,copiers,...} · values.ts
+packages/db/drizzle/               0000_luxuriant_pixie.sql · 0001_amazing_the_renegades.sql
+packages/broker/src/               types.ts · mock-connector · bridge-connector · remote-connector
+
+apps/api/src/server.ts             composition order; single @fastify/cookie registration
+apps/api/src/modules/*.routes.ts   auth · accounts · agents · copiers · insights · realtime
+apps/api/src/plugins/auth.ts       cookie names/options, JWT, authenticate/optionalAuth
+apps/api/src/engine/               worker · copy-pipeline · dispatcher · agents · equity-monitor
+                                   · snapshot-collector · maintenance · notifications · jobs
+apps/api/src/lib/                  passwords · totp · crypto · tickets · ratelimit
+apps/api/test/                     copy-engine · auth-flow · security · env · totp · passwords
+
+apps/bridge-agent/src/             index · config · ea-link (the local EA contract)
+apps/web/app/(dashboard)/           accounts · agents · analytics · billing · copiers · logs · settings
+apps/web/lib/api.ts                the BFF proxy
+integrations/mt5/                  TradeCopierBridge.mq5 · Json.mqh · README.md
+tools/                             env · db · demo-data · seed · reset-db · simulate-copy</code></pre>
+</section>
+
+</main>
+</div>
+
+<footer>
+  <p>
+    Reverse-engineering walkthrough for <code>/Volumes/T7/trade-copier</code> · written on top of
+    <code>b30041c</code> (the 19th commit) · 234 tests green · reference product studied from public
+    first-party sources only.
+  </p>
+  <p class="muted">
+    Method: REA — Reverse Engineer Anything (<a href="https://github.com/morluto/rea">morluto/rea</a>).
+    Every claim about the reference product is tagged Observed / Derived / Inferred / Unknown in
+    <code>FEATURES.md</code>, and the eleven unknowns are handled rather than guessed.
+  </p>
+</footer>
+
+</body>
+</html>
