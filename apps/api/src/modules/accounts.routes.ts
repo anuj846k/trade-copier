@@ -418,6 +418,9 @@ function serializeAccount(
     server: account.server,
     brokerName: account.brokerName,
     kind: account.kind,
+    // `role` decides which accounts the UI may offer as a master; the API
+    // still refuses a follower-only account at copier creation time.
+    role: account.role,
     currency: account.currency,
     leverage: account.leverage,
     status: account.status,
